@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environments
+.venv/
+agent/.venv/
+
+# Node
+node_modules/
+ui/node_modules/
+ui/dist/
+
+# Built UI
+agent/tether/static_ui/
+
+# Agent data
+agent/data/
+
+# Misc
+.DS_Store
+.env
+.idea
+
+# Reference data
+codex-src
+background

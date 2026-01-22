@@ -1,0 +1,84 @@
+"""Bridge runner callbacks into SSE events."""
+
+from __future__ import annotations
+
+from tether.api.emit import (
+    emit_error,
+    emit_heartbeat,
+    emit_metadata,
+    emit_output,
+    emit_state,
+)
+from tether.api.state import transition
+from tether.models import SessionState
+from tether.runner import get_runner
+from tether.store import store
+
+
+class ApiRunnerEvents:
+    """Runner callbacks that bridge process events into SSE output."""
+
+    async def on_output(
+        self,
+        session_id: str,
+        stream: str,
+        text: str,
+        *,
+        kind: str = "final",
+        is_final: bool | None = None,
+    ) -> None:
+        """Handle output emitted by runners.
+
+        Args:
+            session_id: Internal session identifier.
+            stream: Stream label (currently "combined").
+            text: Output text.
+            kind: Output kind ("step", "final", or "header").
+            is_final: Optional explicit finality flag.
+        """
+        session = store.get_session(session_id)
+        if not session:
+            return
+        if kind == "header":
+            session.codex_header = text
+            store.update_session(session)
+            return
+        await emit_output(session, text, kind=kind, is_final=is_final)
+
+    async def on_error(self, session_id: str, code: str, message: str) -> None:
+        """Handle runner errors by transitioning state and emitting SSE."""
+        session = store.get_session(session_id)
+        if not session:
+            return
+        if session.state not in (SessionState.STOPPED, SessionState.ERROR):
+            transition(session, SessionState.ERROR, ended_at=True)
+            await emit_state(session)
+        await emit_error(session, code, message)
+
+    async def on_exit(self, session_id: str, exit_code: int | None) -> None:
+        """Handle runner exit by marking error state if needed."""
+        session = store.get_session(session_id)
+        if not session:
+            return
+        if session.state in (SessionState.STOPPED, SessionState.ERROR):
+            return
+        if exit_code not in (0, None):
+            transition(session, SessionState.ERROR, ended_at=True, exit_code=exit_code)
+            await emit_state(session)
+
+    async def on_metadata(self, session_id: str, key: str, value: object, raw: str) -> None:
+        """Forward runner metadata to SSE."""
+        session = store.get_session(session_id)
+        if not session:
+            return
+        await emit_metadata(session, key, value, raw)
+
+    async def on_heartbeat(self, session_id: str, elapsed_s: float, done: bool) -> None:
+        """Forward runner heartbeat to SSE."""
+        session = store.get_session(session_id)
+        if not session:
+            return
+        await emit_heartbeat(session, elapsed_s, done)
+
+
+runner = get_runner(ApiRunnerEvents())

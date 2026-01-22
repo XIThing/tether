@@ -1,0 +1,114 @@
+"""SSE event emission helpers."""
+
+from __future__ import annotations
+
+import structlog
+
+from tether.api.state import now
+from tether.models import Session
+from tether.store import store
+
+logger = structlog.get_logger("tether.runner")
+
+
+async def emit_state(session: Session) -> None:
+    """Emit a session_state event to SSE listeners.
+
+    Args:
+        session: Session to report.
+    """
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "session_state",
+            "data": {"state": session.state},
+        },
+    )
+
+
+async def emit_output(session: Session, text: str, *, kind: str, is_final: bool | None) -> None:
+    """Emit output text if it is not a recent duplicate.
+
+    Args:
+        session: Session that produced the output.
+        text: Raw output text.
+        kind: Output kind ("step", "final", or "header").
+        is_final: Optional explicit finality flag.
+    """
+    if not store.should_emit_output(session.id, text):
+        return
+    logger.info("Emitting output", session_id=session.id, text=text[:200])
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "output",
+            "data": {"stream": "combined", "text": text, "kind": kind, "final": is_final},
+        },
+    )
+
+
+async def emit_error(session: Session, code: str, message: str) -> None:
+    """Emit an error event to SSE listeners.
+
+    Args:
+        session: Session that encountered the error.
+        code: Error code string.
+        message: Human-readable error message.
+    """
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "error",
+            "data": {"code": code, "message": message},
+        },
+    )
+
+
+async def emit_metadata(session: Session, key: str, value: object, raw: str) -> None:
+    """Emit a metadata event to SSE listeners.
+
+    Args:
+        session: Session associated with the metadata.
+        key: Metadata key identifier.
+        value: Parsed metadata value.
+        raw: Raw metadata string.
+    """
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "metadata",
+            "data": {"key": key, "value": value, "raw": raw},
+        },
+    )
+
+
+async def emit_heartbeat(session: Session, elapsed_s: float, done: bool) -> None:
+    """Emit a heartbeat event for long-running sessions.
+
+    Args:
+        session: Session associated with the heartbeat.
+        elapsed_s: Seconds elapsed since start.
+        done: Whether the session has finished.
+    """
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "heartbeat",
+            "data": {"elapsed_s": elapsed_s, "done": done},
+        },
+    )

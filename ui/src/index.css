@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-stone-950 text-stone-50 antialiased;
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  }
+}
+
+@layer components {
+  .message-markdown code {
+    @apply rounded bg-stone-900/80 px-1 py-0.5 font-mono text-xs text-stone-200;
+  }
+
+  .message-markdown em {
+    @apply text-stone-300;
+  }
+
+  .message-markdown strong {
+    @apply font-semibold text-stone-100;
+  }
+
+  .diff2html .d2h-file-wrapper {
+    @apply border-none;
+  }
+
+  .diff2html .d2h-file-list-wrapper,
+  .diff2html .d2h-file-header {
+    @apply hidden;
+  }
+
+  .diff2html .d2h-code-line {
+    @apply text-[11px];
+  }
+}
