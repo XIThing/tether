@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import argparse
 import http.client
 import json
+import os
 import sys
+import tempfile
 import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -90,11 +93,18 @@ def main() -> int:
     args = parser.parse_args()
 
     base = args.base_url.rstrip("/")
-    token = args.token
+    token = args.token or os.environ.get("AGENT_TOKEN", "")
 
     try:
-        request_json(base, "GET", "/health", token)
-        session = request_json(base, "POST", "/api/sessions", token, {"repo_id": "repo_smoke"})
+        request_json(base, "GET", "/api/health", token)
+        temp_dir = tempfile.mkdtemp(prefix="tether_smoke_dir_")
+        session = request_json(
+            base,
+            "POST",
+            "/api/sessions",
+            token,
+            {"repo_id": "repo_smoke", "directory": os.path.abspath(temp_dir)},
+        )
         session_id = session.get("session", {}).get("id")
         if not session_id:
             raise RuntimeError("Missing session id in create response")

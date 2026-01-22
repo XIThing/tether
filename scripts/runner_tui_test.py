@@ -75,7 +75,7 @@ def sse_consumer(base: str, session_id: str, token: str, stop_event: threading.E
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Interactive Codex TUI test via API endpoints")
+    parser = argparse.ArgumentParser(description="Interactive runner TUI test via API endpoints")
     parser.add_argument("--base-url", default="http://localhost:8787")
     parser.add_argument("--token", default="")
     parser.add_argument("--prompt", default="")
@@ -100,7 +100,7 @@ def main() -> int:
     thread = threading.Thread(target=sse_consumer, args=(base, session_id, token, stop_event), daemon=True)
     thread.start()
 
-    print("\nType input to send to Codex. Ctrl+C to stop.\n")
+    print("\nType input to send to the runner. Ctrl+C to stop.\n")
     try:
         for line in sys.stdin:
             text = line.strip()

@@ -90,7 +90,7 @@ def poll_session(base: str, session_id: str, token: str, timeout_s: int) -> None
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Codex exec smoke test via API endpoints")
+    parser = argparse.ArgumentParser(description="Runner exec smoke test via API endpoints")
     parser.add_argument("--base-url", default="http://localhost:8787")
     parser.add_argument("--token", default="")
     parser.add_argument("--prompt", default="Remember 888.")

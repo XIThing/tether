@@ -62,7 +62,7 @@ def sse_read_output(base: str, session_id: str, timeout_s: int, require_text: Op
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Codex sidecar smoke test")
+    parser = argparse.ArgumentParser(description="Sidecar smoke test")
     parser.add_argument("--base-url", default="http://localhost:8788")
     parser.add_argument("--prompt", default="Remember 888.")
     parser.add_argument("--followup", default="What do you remember?")
