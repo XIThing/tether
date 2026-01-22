@@ -8,6 +8,8 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 
 from tether.api.deps import require_token
+from tether.api.diff import build_git_diff
+from tether.diff import parse_git_diff
 from tether.git import has_git_repository, normalize_directory_path
 
 router = APIRouter(tags=["directories"])
@@ -36,3 +38,23 @@ async def check_directory(
         is_git=response["is_git"],
     )
     return response
+
+
+@router.get("/directories/diff", response_model=dict)
+async def get_directory_diff(
+    path: str = Query(..., min_length=1),
+    _: None = Depends(require_token),
+) -> dict:
+    """Return the git diff for the provided directory."""
+    normalized = normalize_directory_path(path)
+    target = Path(normalized)
+    if not target.is_dir():
+        logger.info("Directory diff requested for missing path", path=normalized)
+        return {"diff": "", "files": []}
+    if not has_git_repository(normalized):
+        logger.info("Directory diff requested for non-git path", path=normalized)
+        return {"diff": "", "files": []}
+    logger.info("Directory diff requested", path=normalized)
+    diff_text = build_git_diff(normalized)
+    files = parse_git_diff(diff_text)
+    return {"diff": diff_text, "files": files}

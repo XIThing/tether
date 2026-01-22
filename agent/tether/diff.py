@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import re
-from typing import List, Dict
-
-
-def parse_git_diff(raw: str) -> List[Dict[str, object]]:
+def parse_git_diff(raw: str) -> list[dict[str, object]]:
     """Parse a unified diff into per-file patches with hunk counts.
 
     Args:
         raw: Unified diff text.
     """
-    files: List[Dict[str, object]] = []
-    current: Dict[str, object] | None = None
+    files: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
     for line in raw.splitlines():
         if line.startswith("diff --git "):
             # Start a new file section when a diff header appears.
@@ -31,7 +28,7 @@ def parse_git_diff(raw: str) -> List[Dict[str, object]]:
         current["patch_lines"].append(line)
     if current:
         files.append(current)
-    results: List[Dict[str, object]] = []
+    results: list[dict[str, object]] = []
     for entry in files:
         patch_lines = entry.get("patch_lines", [])
         if isinstance(patch_lines, list):

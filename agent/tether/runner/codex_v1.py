@@ -1,4 +1,11 @@
-"""Runner adapter that shells out to the Codex CLI and normalizes output."""
+"""Runner adapter that shells out to the Codex CLI and normalizes output.
+
+.. deprecated::
+    This runner is deprecated in favor of the Codex SDK sidecar approach
+    (codex_sdk_sidecar). The sidecar provides structured events directly,
+    avoiding the brittle stdout/stderr parsing required by this runner.
+    Use AGENT_ADAPTER=codex_sdk_sidecar instead.
+"""
 
 from __future__ import annotations
 
@@ -19,6 +26,8 @@ SESSION_ID_RE = re.compile(r"(?:session id|session_id)[:=]\s*(\S+)", re.IGNORECA
 
 class CodexV1Runner:
     """Runner that shells out to the Codex CLI and parses its stdout/stderr."""
+
+    runner_type: str = "codex"
 
     def __init__(self, events: RunnerEvents) -> None:
         self._events = events
@@ -64,18 +73,18 @@ class CodexV1Runner:
         """
         if text:
             self._remember_prompt(session_id, text)
-        codex_session_id = store.get_codex_session_id(session_id)
-        if store.get_process(session_id) or not codex_session_id:
+        runner_session_id = store.get_runner_session_id(session_id)
+        if store.get_process(session_id) or not runner_session_id:
             store.add_pending_input(session_id, text)
             logger.info(
                 "Queued input",
                 session_id=session_id,
                 has_process=bool(store.get_process(session_id)),
-                has_codex_session_id=bool(codex_session_id),
+                has_runner_session_id=bool(runner_session_id),
             )
             return
-        args = ["exec", "--skip-git-repo-check", "resume", codex_session_id, text]
-        logger.info("Starting resume exec", session_id=session_id, codex_session_id=codex_session_id)
+        args = ["exec", "--skip-git-repo-check", "resume", runner_session_id, text]
+        logger.info("Starting resume exec", session_id=session_id, runner_session_id=runner_session_id)
         asyncio.create_task(self._run_exec(session_id, args))
 
     async def stop(self, session_id: str) -> int | None:
@@ -103,8 +112,8 @@ class CodexV1Runner:
         store.clear_stdin(session_id)
         store.clear_prompt_sent(session_id)
         store.clear_pending_inputs(session_id)
-        store.clear_codex_session_id(session_id)
-        store.clear_workdir(session_id)
+        store.clear_runner_session_id(session_id)
+        store.clear_workdir(session_id, force=False)
         self._clear_session_state(session_id)
         return exit_code
 
@@ -178,7 +187,25 @@ class CodexV1Runner:
                 asyncio.create_task(self._read_stream(session_id, stdout)),
                 asyncio.create_task(self._log_stderr(session_id, stderr)),
             ]
-            exit_code = await proc.wait()
+            timeout_s = int(os.environ.get("RUNNER_TURN_TIMEOUT_SECONDS", "0"))
+            if timeout_s > 0:
+                try:
+                    exit_code = await asyncio.wait_for(proc.wait(), timeout=timeout_s)
+                except asyncio.TimeoutError:
+                    logger.warning("Turn timeout reached; terminating process", session_id=session_id)
+                    proc.terminate()
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=3)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                        await proc.wait()
+                    store.clear_process(session_id)
+                    store.clear_last_output(session_id)
+                    await self._stop_heartbeat(session_id, done=True)
+                    await self._events.on_error(session_id, "TIMEOUT", "Runner turn timed out")
+                    return
+            else:
+                exit_code = await proc.wait()
             logger.info("Process exited", session_id=session_id, exit_code=exit_code)
             for task in reader_tasks:
                 task.cancel()
@@ -198,7 +225,7 @@ class CodexV1Runner:
             await self._maybe_run_pending(session_id)
 
     async def _maybe_run_pending(self, session_id: str) -> None:
-        """Run the next queued input if Codex session id is available.
+        """Run the next queued input if the runner session id is available.
 
         Args:
             session_id: Internal session identifier.
@@ -208,15 +235,15 @@ class CodexV1Runner:
             return
         if store.get_process(session_id):
             return
-        codex_session_id = store.get_codex_session_id(session_id)
-        if not codex_session_id:
-            logger.info("No codex session id yet", session_id=session_id)
+        runner_session_id = store.get_runner_session_id(session_id)
+        if not runner_session_id:
+            logger.info("No runner session id yet", session_id=session_id)
             return
         next_text = store.pop_next_pending_input(session_id)
         if not next_text:
             return
-        args = ["exec", "--skip-git-repo-check", "resume", codex_session_id, next_text]
-        logger.info("Running pending input", session_id=session_id, codex_session_id=codex_session_id)
+        args = ["exec", "--skip-git-repo-check", "resume", runner_session_id, next_text]
+        logger.info("Running pending input", session_id=session_id, runner_session_id=runner_session_id)
         asyncio.create_task(self._run_exec(session_id, args))
 
     async def _handle_output(self, session_id: str, text: str) -> None:
@@ -269,12 +296,12 @@ class CodexV1Runner:
                     )
                     continue
             match = SESSION_ID_RE.search(raw)
-            if match and not store.get_codex_session_id(session_id):
-                store.set_codex_session_id(session_id, match.group(1))
+            if match and not store.get_runner_session_id(session_id):
+                store.set_runner_session_id(session_id, match.group(1))
                 logger.info(
-                    "Captured codex session id",
+                    "Captured runner session id",
                     session_id=session_id,
-                    codex_session_id=match.group(1),
+                    runner_session_id=match.group(1),
                 )
                 continue
             if self._should_skip_line(session_id, raw):

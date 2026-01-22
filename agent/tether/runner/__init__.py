@@ -5,8 +5,12 @@ from __future__ import annotations
 import os
 
 from tether.runner.base import Runner, RunnerEvents
+from tether.runner.claude import ClaudeRunner
 from tether.runner.codex_v1 import CodexV1Runner
 from tether.runner.sidecar import SidecarRunner
+
+# Cache the runner type after first initialization
+_active_runner_type: str | None = None
 
 
 def get_runner(events: RunnerEvents) -> Runner:
@@ -15,13 +19,27 @@ def get_runner(events: RunnerEvents) -> Runner:
     Args:
         events: RunnerEvents callback sink.
     """
+    global _active_runner_type
     name = os.environ.get("AGENT_ADAPTER", "codex_v1").strip().lower()
     if name in ("codex_v1", "codex"):
-        return CodexV1Runner(events)
-    if name in ("sidecar", "codex_sidecar"):
-        base_url = os.environ.get("SIDECAR_URL")
-        return SidecarRunner(events, base_url=base_url)
+        runner = CodexV1Runner(events)
+        _active_runner_type = runner.runner_type
+        return runner
+    if name in ("codex_sdk_sidecar", "sidecar", "codex_sidecar"):
+        base_url = os.environ.get("CODEX_SDK_SIDECAR_URL") or os.environ.get("SIDECAR_URL")
+        runner = SidecarRunner(events, base_url=base_url)
+        _active_runner_type = runner.runner_type
+        return runner
+    if name in ("claude", "anthropic"):
+        runner = ClaudeRunner(events)
+        _active_runner_type = runner.runner_type
+        return runner
     raise ValueError(f"Unknown agent adapter: {name}")
 
 
-__all__ = ["get_runner", "Runner", "RunnerEvents"]
+def get_runner_type() -> str | None:
+    """Return the runner type of the active runner, or None if not initialized."""
+    return _active_runner_type
+
+
+__all__ = ["get_runner", "get_runner_type", "Runner", "RunnerEvents"]

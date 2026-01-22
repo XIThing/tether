@@ -8,6 +8,7 @@ import structlog
 import urllib.parse
 import http.client
 import re
+import os
 from collections import deque
 from typing import Any, Coroutine
 
@@ -23,9 +24,12 @@ SESSION_ID_RE = re.compile(r"(?:session id|session_id)[:=]\s*(\S+)", re.IGNORECA
 class SidecarRunner:
     """Runner that delegates Codex execution to a local TypeScript sidecar."""
 
+    runner_type: str = "codex"
+
     def __init__(self, events: RunnerEvents, base_url: str | None = None) -> None:
         self._events = events
         self._base_url = base_url or "http://localhost:8788"
+        self._token = os.environ.get("CODEX_SDK_SIDECAR_TOKEN", "") or os.environ.get("SIDECAR_TOKEN", "")
         self._streams: dict[str, asyncio.Task] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._capturing_header: dict[str, bool] = {}
@@ -131,7 +135,10 @@ class SidecarRunner:
         url = urllib.parse.urlparse(self._base_url)
         conn = http.client.HTTPConnection(url.hostname, url.port or 80, timeout=30)
         path = f"/events/{session_id}"
-        conn.request("GET", path)
+        headers = {}
+        if self._token:
+            headers["X-Sidecar-Token"] = self._token
+        conn.request("GET", path, headers=headers)
         resp = conn.getresponse()
         if resp.status != 200:
             data = resp.read().decode("utf-8", errors="replace")
@@ -252,8 +259,8 @@ class SidecarRunner:
                             )
                             continue
                     match = SESSION_ID_RE.search(raw)
-                    if match and not store.get_codex_session_id(session_id):
-                        store.set_codex_session_id(session_id, match.group(1))
+                    if match and not store.get_runner_session_id(session_id):
+                        store.set_runner_session_id(session_id, match.group(1))
                         continue
                     if self._maybe_capture_header(session_id, raw):
                         continue
@@ -401,6 +408,8 @@ class SidecarRunner:
         conn = http.client.HTTPConnection(url.hostname, url.port or 80, timeout=10)
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
+        if self._token:
+            headers["X-Sidecar-Token"] = self._token
         conn.request("POST", path, body=body, headers=headers)
         resp = conn.getresponse()
         data = resp.read().decode("utf-8", errors="replace")

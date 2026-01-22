@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from starlette.responses import StreamingResponse
 

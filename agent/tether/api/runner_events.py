@@ -9,7 +9,7 @@ from tether.api.emit import (
     emit_output,
     emit_state,
 )
-from tether.api.state import transition
+from tether.api.state import now, transition
 from tether.models import SessionState
 from tether.runner import get_runner
 from tether.store import store
@@ -40,9 +40,11 @@ class ApiRunnerEvents:
         if not session:
             return
         if kind == "header":
-            session.codex_header = text
+            session.runner_header = text
             store.update_session(session)
             return
+        session.last_activity_at = now()
+        store.update_session(session)
         await emit_output(session, text, kind=kind, is_final=is_final)
 
     async def on_error(self, session_id: str, code: str, message: str) -> None:
@@ -65,12 +67,17 @@ class ApiRunnerEvents:
         if exit_code not in (0, None):
             transition(session, SessionState.ERROR, ended_at=True, exit_code=exit_code)
             await emit_state(session)
+            return
+        transition(session, SessionState.STOPPED, ended_at=True)
+        await emit_state(session)
 
     async def on_metadata(self, session_id: str, key: str, value: object, raw: str) -> None:
         """Forward runner metadata to SSE."""
         session = store.get_session(session_id)
         if not session:
             return
+        session.last_activity_at = now()
+        store.update_session(session)
         await emit_metadata(session, key, value, raw)
 
     async def on_heartbeat(self, session_id: str, elapsed_s: float, done: bool) -> None:
@@ -78,6 +85,8 @@ class ApiRunnerEvents:
         session = store.get_session(session_id)
         if not session:
             return
+        session.last_activity_at = now()
+        store.update_session(session)
         await emit_heartbeat(session, elapsed_s, done)
 
 

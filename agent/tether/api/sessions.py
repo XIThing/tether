@@ -9,12 +9,14 @@ import structlog
 from fastapi import APIRouter, Body, Depends
 
 from tether.api.deps import require_token
+from tether.api.diff import build_git_diff
 from tether.api.emit import emit_state
 from tether.api.errors import raise_http_error
 from tether.api.runner_events import runner
 from tether.api.state import maybe_set_session_name, now, transition
+from tether.runner import get_runner_type
 from tether.diff import parse_git_diff
-from tether.git import normalize_directory_path
+from tether.git import has_git_repository, normalize_directory_path
 from tether.models import SessionState
 from tether.store import store
 
@@ -36,7 +38,7 @@ async def list_sessions(_: None = Depends(require_token)) -> dict:
     """List all sessions in memory."""
     sessions = store.list_sessions()
     logger.info("Listed sessions", count=len(sessions))
-    return {"sessions": sessions}
+    return {"sessions": [_serialize_session(session) for session in sessions]}
 
 
 @router.post("/sessions", response_model=dict, status_code=201)
@@ -73,7 +75,7 @@ async def create_session(
             repo_id=session.repo_id,
             directory=normalized_directory,
         )
-        return {"session": session}
+        return {"session": _serialize_session(session)}
 
 
 @router.get("/sessions/{session_id}", response_model=dict)
@@ -84,7 +86,7 @@ async def get_session(session_id: str, _: None = Depends(require_token)) -> dict
         if not session:
             raise_http_error("NOT_FOUND", "Session not found", 404)
         logger.info("Fetched session", state=session.state)
-        return {"session": session}
+        return {"session": _serialize_session(session)}
 
 
 @router.delete("/sessions/{session_id}", response_model=dict)
@@ -107,17 +109,35 @@ async def start_session(
     payload: dict = Body(...),
     _: None = Depends(require_token),
 ) -> dict:
-    """Start a session and launch Codex process streaming."""
+    """Start a session and launch the configured runner."""
     with _session_logging_context(session_id):
         session = store.get_session(session_id)
         if not session:
             raise_http_error("NOT_FOUND", "Session not found", 404)
-        if session.state != SessionState.CREATED:
-            raise_http_error("INVALID_STATE", "Session not in CREATED state", 409)
+        if session.state not in (SessionState.CREATED, SessionState.STOPPED, SessionState.ERROR):
+            raise_http_error("INVALID_STATE", "Session not ready to start", 409)
+        if session.state in (SessionState.STOPPED, SessionState.ERROR):
+            session.ended_at = None
+            session.exit_code = None
+            session.summary = None
+            if hasattr(session, "runner_header"):
+                session.runner_header = None
+            store.clear_process(session_id)
+            store.clear_master_fd(session_id)
+            store.clear_stdin(session_id)
+            store.clear_prompt_sent(session_id)
+            store.clear_pending_inputs(session_id)
+            store.clear_runner_session_id(session_id)
+            store.clear_last_output(session_id)
         logger.info("Session start requested")
+        session.runner_type = get_runner_type()
         transition(session, SessionState.RUNNING, started_at=True)
-        store.clear_codex_session_id(session_id)
-        store.get_workdir(session_id) or store.create_workdir(session_id)
+        store.clear_runner_session_id(session_id)
+        if session.directory:
+            if not store.get_workdir(session_id):
+                store.set_workdir(session_id, session.directory, managed=False)
+        else:
+            raise_http_error("VALIDATION_ERROR", "Session has no directory assigned", 422)
         await emit_state(session)
         prompt = payload.get("prompt", "")
         maybe_set_session_name(session, prompt)
@@ -127,7 +147,7 @@ async def start_session(
         # The runner decides how to interpret approval_choice; codex_v1 ignores it.
         await runner.start(session_id, prompt, approval_choice)
         logger.info("Session started")
-        return {"session": session}
+        return {"session": _serialize_session(session)}
 
 
 @router.patch("/sessions/{session_id}/rename", response_model=dict)
@@ -148,7 +168,7 @@ async def rename_session(
         session.name = cleaned[:80]
         store.update_session(session)
         logger.info("Session renamed", name=session.name)
-        return {"session": session}
+        return {"session": _serialize_session(session)}
 
 
 @router.post("/sessions/{session_id}/input", response_model=dict)
@@ -175,7 +195,7 @@ async def send_input(
             session.last_activity_at = now()
             store.update_session(session)
         logger.info("Session input forwarded")
-        return {"session": session}
+        return {"session": _serialize_session(session)}
 
 
 @router.post("/sessions/{session_id}/stop", response_model=dict)
@@ -187,7 +207,7 @@ async def stop_session(session_id: str, _: None = Depends(require_token)) -> dic
             raise_http_error("NOT_FOUND", "Session not found", 404)
         if session.state in (SessionState.STOPPED, SessionState.ERROR):
             logger.info("Session stop requested for terminal session")
-            return {"session": session}
+            return {"session": _serialize_session(session)}
         if session.state == SessionState.CREATED:
             raise_http_error("INVALID_STATE", "Session not running", 409)
         if session.state == SessionState.RUNNING:
@@ -207,64 +227,39 @@ async def stop_session(session_id: str, _: None = Depends(require_token)) -> dic
             )
             await emit_state(session)
         logger.info("Session stopped", exit_code=exit_code)
-        return {"session": session}
+        return {"session": _serialize_session(session)}
 
 
 @router.get("/sessions/{session_id}/diff", response_model=dict)
 async def get_diff(session_id: str, _: None = Depends(require_token)) -> dict:
-    """Return placeholder diff output for a session."""
+    """Return the git diff for the session's working directory."""
     with _session_logging_context(session_id):
         session = store.get_session(session_id)
         if not session:
             raise_http_error("NOT_FOUND", "Session not found", 404)
         logger.info("Session diff requested")
-        diff = """diff --git a/ui/src/views/ActiveSession.vue b/ui/src/views/ActiveSession.vue
-index 2bce3a1..d93c7c0 100644
---- a/ui/src/views/ActiveSession.vue
-+++ b/ui/src/views/ActiveSession.vue
-@@ -3,7 +3,11 @@
--    <h2>Active Session</h2>
--    <p v-if="session">State: {{ session.state }}</p>
-+    <h2>
-+      <span class="status"></span>
-+      Active Session
-+    </h2>
-+    <p v-if="session">{{ session.repo_display }} · {{ session.state }}</p>
-   </div>
-@@ -42,6 +46,10 @@
--<pre class="diff">{{ diff }}</pre>
-+<div class="diff-header">
-+  <h3>Diff preview</h3>
-+  <button>Copy</button>
-+</div>
-+<pre class="diff"><code>{{ diff }}</code></pre>
-diff --git a/ui/src/App.vue b/ui/src/App.vue
-index f5a12c3..bd901fe 100644
---- a/ui/src/App.vue
-+++ b/ui/src/App.vue
-@@ -1,6 +1,9 @@
- <header class="topbar">
--  <h1>Tether</h1>
-+  <h1>
-+    <span class="brand-dot"></span>
-+    Tether
-+  </h1>
- </header>
-@@ -72,6 +75,8 @@
--.topbar { background: #121312; }
-+.topbar { background: #121312; }
-+.brand-dot { width: 8px; height: 8px; border-radius: 50%; }
-diff --git a/ui/src/views/Sessions.vue b/ui/src/views/Sessions.vue
-index 9b1bc4a..f63ce2a 100644
---- a/ui/src/views/Sessions.vue
-+++ b/ui/src/views/Sessions.vue
-@@ -18,7 +18,10 @@
--  <button @click="create">Create & open</button>
-+  <button @click="create">Create & open</button>
-+  <button class="ghost" @click="refresh">Refresh</button>
-@@ -80,6 +83,8 @@
--.session-card { display: flex; }
-+.session-card { display: flex; }
-+.session-card.active { border-color: var(--accent); }
-"""
-        return {"diff": diff, "files": parse_git_diff(diff)}
+        target = session.directory or store.get_workdir(session_id)
+        if target and Path(target).is_dir() and has_git_repository(target):
+            diff_text = build_git_diff(target)
+            files = parse_git_diff(diff_text)
+            return {"diff": diff_text, "files": files}
+        logger.info("Diff unavailable", path=target, reason="no repository")
+        return {"diff": "", "files": []}
+
+
+def _serialize_session(session) -> dict:
+    return {
+        "id": session.id,
+        "state": session.state.value if hasattr(session.state, "value") else session.state,
+        "name": session.name,
+        "created_at": session.created_at,
+        "started_at": session.started_at,
+        "ended_at": session.ended_at,
+        "last_activity_at": session.last_activity_at,
+        "exit_code": session.exit_code,
+        "summary": session.summary,
+        "runner_header": getattr(session, "runner_header", None),
+        "runner_type": getattr(session, "runner_type", None),
+        "directory": session.directory,
+        "directory_has_git": session.directory_has_git,
+    }

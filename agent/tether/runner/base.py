@@ -30,6 +30,9 @@ class RunnerEvents(Protocol):
 class Runner(Protocol):
     """Adapter interface for agent backends (Codex CLI, SDK sidecar, etc.)."""
 
+    runner_type: str
+    """High-level agent type identifier (e.g., 'codex', 'claude')."""
+
     async def start(self, session_id: str, prompt: str, approval_choice: int) -> None: ...
 
     async def send_input(self, session_id: str, text: str) -> None: ...

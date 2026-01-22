@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
-
 from pydantic import BaseModel
 
 
@@ -30,15 +28,16 @@ class Session(BaseModel):
     repo_display: str
     repo_ref: RepoRef
     state: SessionState
-    name: Optional[str] = None
+    name: str | None = None
     created_at: str
-    started_at: Optional[str]
-    ended_at: Optional[str]
+    started_at: str | None
+    ended_at: str | None
     last_activity_at: str
-    exit_code: Optional[int]
-    summary: Optional[str]
-    codex_header: Optional[str] = None
-    directory: Optional[str] = None
+    exit_code: int | None
+    summary: str | None
+    runner_header: str | None = None
+    runner_type: str | None = None
+    directory: str | None = None
     directory_has_git: bool = False
 
 
@@ -46,9 +45,19 @@ class ErrorDetail(BaseModel):
     """Structured error payload for API responses."""
     code: str
     message: str
-    details: Optional[dict]
+    details: dict | None
 
 
 class ErrorResponse(BaseModel):
     """Envelope for API error responses."""
     error: ErrorDetail
+
+
+class Message(BaseModel):
+    """Conversation message for Claude runner history."""
+    id: str
+    session_id: str
+    role: str  # "user", "assistant"
+    content: str  # JSON-encoded content blocks
+    seq: int
+    created_at: str

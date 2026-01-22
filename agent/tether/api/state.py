@@ -10,8 +10,8 @@ _VALID_TRANSITIONS = {
     SessionState.CREATED: {SessionState.RUNNING},
     SessionState.RUNNING: {SessionState.STOPPING, SessionState.STOPPED, SessionState.ERROR},
     SessionState.STOPPING: {SessionState.STOPPED, SessionState.ERROR},
-    SessionState.STOPPED: set(),
-    SessionState.ERROR: set(),
+    SessionState.STOPPED: {SessionState.RUNNING},
+    SessionState.ERROR: {SessionState.RUNNING},
 }
 
 
