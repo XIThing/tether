@@ -6,7 +6,7 @@ import os
 
 from tether.runner.base import Runner, RunnerEvents
 from tether.runner.claude import ClaudeRunner
-from tether.runner.codex_v1 import CodexV1Runner
+from tether.runner.codex_cli import CodexCliRunner
 from tether.runner.sidecar import SidecarRunner
 
 # Cache the runner type after first initialization
@@ -20,9 +20,9 @@ def get_runner(events: RunnerEvents) -> Runner:
         events: RunnerEvents callback sink.
     """
     global _active_runner_type
-    name = os.environ.get("AGENT_ADAPTER", "codex_v1").strip().lower()
-    if name in ("codex_v1", "codex"):
-        runner = CodexV1Runner(events)
+    name = os.environ.get("AGENT_ADAPTER", "codex_cli").strip().lower()
+    if name in ("codex_cli", "codex_v1", "codex"):
+        runner = CodexCliRunner(events)
         _active_runner_type = runner.runner_type
         return runner
     if name in ("codex_sdk_sidecar", "sidecar", "codex_sidecar"):

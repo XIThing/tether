@@ -20,11 +20,11 @@ from tether.models import SessionState
 from tether.runner.base import RunnerEvents
 from tether.store import store
 
-logger = structlog.get_logger("tether.runner.codex_v1")
+logger = structlog.get_logger("tether.runner.codex_cli")
 SESSION_ID_RE = re.compile(r"(?:session id|session_id)[:=]\s*(\S+)", re.IGNORECASE)
 
 
-class CodexV1Runner:
+class CodexCliRunner:
     """Runner that shells out to the Codex CLI and parses its stdout/stderr."""
 
     runner_type: str = "codex"
@@ -51,6 +51,7 @@ class CodexV1Runner:
             prompt: Initial prompt to send to Codex.
             approval_choice: Approval policy hint from the UI.
         """
+        store.clear_stop_requested(session_id)
         self._clear_session_state(session_id)
         if prompt:
             self._remember_prompt(session_id, prompt)
@@ -93,6 +94,7 @@ class CodexV1Runner:
         Args:
             session_id: Internal session identifier.
         """
+        store.request_stop(session_id)
         proc = store.get_process(session_id)
         exit_code = None
         if proc and proc.returncode is None:
@@ -220,8 +222,12 @@ class CodexV1Runner:
             return
 
         await self._stop_heartbeat(session_id, done=True)
-        await self._events.on_exit(session_id, exit_code)
-        if exit_code in (0, None):
+        # If stop was explicitly requested or exit code is non-zero, it's a real exit
+        # Otherwise, the agent finished a turn and is waiting for input
+        if store.is_stop_requested(session_id) or exit_code not in (0, None):
+            await self._events.on_exit(session_id, exit_code)
+        else:
+            await self._events.on_awaiting_input(session_id)
             await self._maybe_run_pending(session_id)
 
     async def _maybe_run_pending(self, session_id: str) -> None:
