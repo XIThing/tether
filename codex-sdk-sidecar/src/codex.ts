@@ -43,8 +43,8 @@ import { ensureWorkdir } from "./workdir.js";
 /** Interval between heartbeat events during a turn (seconds). */
 const HEARTBEAT_SECONDS = 5;
 
-/** Enable detailed SDK event logging (for debugging). */
-const LOG_EVENTS = false;
+/** Enable detailed SDK event logging (for debugging). Set TETHER_CODEX_SIDECAR_LOG_EVENTS=1 */
+const LOG_EVENTS = process.env.TETHER_CODEX_SIDECAR_LOG_EVENTS === "1";
 
 // =============================================================================
 // Codex Client
@@ -113,28 +113,17 @@ export function buildThreadOptions(session: SessionState, approvalChoice: number
  * @param options - The thread options being used
  */
 export function emitHeader(session: SessionState, options: ThreadOptions): void {
-  const lines = [
-    "Codex SDK Sidecar",
-    "--------",
-    `thread id: ${session.threadId ?? "unknown"}`,
-    `workdir: ${session.workdir ?? "unknown"}`,
-  ];
-
-  if (options.model) {
-    lines.push(`model: ${options.model}`);
-  }
-  if (options.sandboxMode) {
-    lines.push(`sandbox: ${options.sandboxMode}`);
-  }
-  if (options.approvalPolicy) {
-    lines.push(`approval: ${options.approvalPolicy}`);
-  }
-
-  lines.push("--------");
-
   emit(session, {
     type: "header",
-    data: { text: lines.join("\n") },
+    data: {
+      title: "Codex SDK Sidecar",
+      model: options.model || "default",
+      provider: "OpenAI (Codex)",
+      sandbox: options.sandboxMode || "default",
+      approval: options.approvalPolicy || "default",
+      session_id: session.id,
+      thread_id: session.threadId ?? "unknown",
+    },
   });
 }
 
@@ -272,9 +261,12 @@ export function handleEvent(
   event: ThreadEvent,
   options: ThreadOptions,
 ): void {
-  // Debug logging for SDK events
+  // Always log event type at debug level
+  logger.debug({ session_id: session.id, event_type: event.type }, "SDK event received");
+
+  // Detailed event logging when enabled
   if (LOG_EVENTS) {
-    logger.debug({ session_id: session.id, event }, "SDK event");
+    logger.debug({ session_id: session.id, event }, "SDK event details");
   }
 
   switch (event.type) {
@@ -341,6 +333,11 @@ export async function runTurn(
   input: string,
   approvalChoice: number,
 ): Promise<void> {
+  logger.debug(
+    { session_id: session.id, input_length: input.length, approvalChoice },
+    "Starting turn",
+  );
+
   // Mark session as running
   session.running = true;
   session.heartbeatStartMs = Date.now();
@@ -359,37 +356,44 @@ export async function runTurn(
     emitHeartbeat(session, false);
   }, HEARTBEAT_SECONDS * 1000);
 
-  // Ensure working directory exists
-  const workdir = await ensureWorkdir(session);
-  const options = buildThreadOptions({ ...session, workdir }, approvalChoice);
-
-  // Create thread if this is the first turn
-  if (!session.thread) {
-    session.thread = codex.startThread(options);
-  }
-
-  // Set up abort controller for stop/timeout
-  session.abortController = new AbortController();
-
-  // Set up turn timeout if configured
-  const turnTimeout = settings.turnTimeoutSeconds();
-  if (turnTimeout > 0) {
-    session.timeoutTimer = setTimeout(() => {
-      emitError(session, "TIMEOUT", "Runner turn timed out");
-      session.abortReason = "timeout";
-      session.abortController?.abort();
-    }, turnTimeout * 1000);
-  }
-
-  // Run the turn and stream events
-  const { events } = await session.thread.runStreamed(input, {
-    signal: session.abortController.signal,
-  });
-
   try {
+    // Ensure working directory exists
+    const workdir = await ensureWorkdir(session);
+    logger.debug({ session_id: session.id, workdir }, "Workdir resolved");
+
+    const options = buildThreadOptions({ ...session, workdir }, approvalChoice);
+    logger.debug({ session_id: session.id, options }, "Thread options built");
+
+    // Create thread if this is the first turn
+    if (!session.thread) {
+      logger.debug({ session_id: session.id }, "Creating new thread");
+      session.thread = codex.startThread(options);
+    }
+
+    // Set up abort controller for stop/timeout
+    session.abortController = new AbortController();
+
+    // Set up turn timeout if configured
+    const turnTimeout = settings.turnTimeoutSeconds();
+    if (turnTimeout > 0) {
+      session.timeoutTimer = setTimeout(() => {
+        emitError(session, "TIMEOUT", "Runner turn timed out");
+        session.abortReason = "timeout";
+        session.abortController?.abort();
+      }, turnTimeout * 1000);
+    }
+
+    // Run the turn and stream events
+    logger.debug({ session_id: session.id }, "Calling runStreamed");
+    const { events } = await session.thread.runStreamed(input, {
+      signal: session.abortController.signal,
+    });
+    logger.debug({ session_id: session.id }, "runStreamed returned, iterating events");
+
     for await (const event of events) {
       handleEvent(session, event, options);
     }
+    logger.debug({ session_id: session.id }, "Turn completed successfully");
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       // Expected when stop() or timeout triggers abort

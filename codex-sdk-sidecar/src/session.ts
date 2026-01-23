@@ -37,6 +37,7 @@ export function getSession(sessionId: string): SessionState {
       running: false,
       pendingInputs: [],
       subscribers: new Set(),
+      eventBuffer: [],
     };
     sessions.set(sessionId, session);
     logger.debug({ session_id: sessionId }, "Created new session state");
@@ -64,12 +65,18 @@ export function deleteSession(sessionId: string): void {
  * Emit a JSON event to all SSE subscribers of a session.
  *
  * Events are formatted as Server-Sent Events (SSE) with JSON payloads.
- * If no subscribers are connected, the event is silently dropped.
+ * If no subscribers are connected, the event is buffered for replay
+ * when a subscriber connects.
  *
  * @param session - The session to emit to
  * @param event - The event payload (will be JSON-serialized)
  */
 export function emit(session: SessionState, event: unknown): void {
+  if (session.subscribers.size === 0) {
+    // Buffer event for replay when a subscriber connects
+    session.eventBuffer.push(event);
+    return;
+  }
   const payload = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of session.subscribers) {
     res.write(payload);
@@ -151,12 +158,27 @@ export function emitHeartbeat(session: SessionState, done: boolean): void {
 /**
  * Add an SSE subscriber to a session.
  *
+ * Replays any buffered events that were emitted before any subscriber connected.
+ *
  * @param session - The session to subscribe to
  * @param res - The Express response object for SSE streaming
  */
 export function addSubscriber(session: SessionState, res: Response): void {
   session.subscribers.add(res);
   logger.info({ session_id: session.id }, "SSE client connected");
+
+  // Replay buffered events
+  if (session.eventBuffer.length > 0) {
+    logger.info(
+      { session_id: session.id, count: session.eventBuffer.length },
+      "Replaying buffered events",
+    );
+    for (const event of session.eventBuffer) {
+      const payload = `data: ${JSON.stringify(event)}\n\n`;
+      res.write(payload);
+    }
+    session.eventBuffer = [];
+  }
 }
 
 /**

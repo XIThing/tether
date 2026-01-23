@@ -20,6 +20,7 @@
  * @module index
  */
 
+import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import { settings } from "./settings.js";
 import { logger } from "./logger.js";

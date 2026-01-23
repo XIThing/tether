@@ -45,6 +45,9 @@ export type SessionState = {
   /** Connected SSE clients waiting for events. */
   subscribers: Set<Response>;
 
+  /** Buffered events emitted before any subscriber connected. */
+  eventBuffer: unknown[];
+
   /** Interval timer for periodic heartbeat emissions. */
   heartbeatTimer?: NodeJS.Timeout;
 

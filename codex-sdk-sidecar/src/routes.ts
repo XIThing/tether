@@ -72,7 +72,9 @@ router.post("/sessions/start", async (req: Request, res: Response) => {
 
   // Start the turn if a prompt was provided
   if (prompt) {
-    void runTurn(session, String(prompt), Number(approval_choice) || 1);
+    runTurn(session, String(prompt), Number(approval_choice) || 1).catch((err) => {
+      logger.error({ session_id, error: String(err) }, "runTurn failed unexpectedly");
+    });
   }
 
   return res.json({ ok: true });
@@ -112,7 +114,9 @@ router.post("/sessions/input", (req: Request, res: Response) => {
   }
 
   // Start a new turn
-  void runTurn(session, String(text), 1);
+  runTurn(session, String(text), 1).catch((err) => {
+    logger.error({ session_id, error: String(err) }, "runTurn failed unexpectedly");
+  });
   return res.json({ ok: true });
 });
 
@@ -194,8 +198,14 @@ router.get("/events/:sessionId", (req: Request, res: Response) => {
   // Register as subscriber
   addSubscriber(session, res);
 
+  // Send keepalive comments every 30s to prevent read timeouts
+  const keepaliveTimer = setInterval(() => {
+    res.write(": keepalive\n\n");
+  }, 30_000);
+
   // Clean up on disconnect
   req.on("close", () => {
+    clearInterval(keepaliveTimer);
     removeSubscriber(session, res);
   });
 });
