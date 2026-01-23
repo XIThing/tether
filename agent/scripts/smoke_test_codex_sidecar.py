@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
-"""Smoke test for the Claude Local runner (Agent SDK with OAuth).
+"""Smoke test for the Codex SDK Sidecar runner.
 
 Runs a multi-turn conversation test:
-1. Ask Claude to remember a random number
-2. Ask Claude to repeat it back
+1. Ask Codex to remember a random number
+2. Ask Codex to repeat it back
 3. Verify the response
 
-Requires: Claude CLI OAuth setup (~/.claude/.credentials.json)
+Requires: Running sidecar at TETHER_CODEX_SIDECAR_URL (default: http://localhost:8788)
 """
 
 import asyncio
+import http.client
 import os
 import random
 import sys
 import tempfile
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("TETHER_AGENT_DEV_MODE", "1")
-os.environ.setdefault("TETHER_AGENT_ADAPTER", "claude_local")
+os.environ.setdefault("TETHER_AGENT_ADAPTER", "codex_sdk_sidecar")
 
 
 class Events:
@@ -28,6 +30,7 @@ class Events:
         self.outputs = []
         self.errors = []
         self.awaiting_input = False
+        self.exited = False
 
     async def on_output(self, session_id, stream, text, kind=None, is_final=None):
         self.outputs.append(text)
@@ -44,7 +47,7 @@ class Events:
         pass
 
     async def on_exit(self, session_id, exit_code):
-        pass
+        self.exited = True
 
     async def on_awaiting_input(self, session_id):
         self.awaiting_input = True
@@ -56,44 +59,45 @@ class Events:
         self.outputs = []
         self.errors = []
         self.awaiting_input = False
+        self.exited = False
 
 
-async def wait_for_turn(events, timeout=60):
+async def wait_for_turn(events, timeout=120):
     """Wait for the current turn to complete."""
     elapsed = 0
     while elapsed < timeout:
         await asyncio.sleep(0.5)
         elapsed += 0.5
-        if events.awaiting_input or events.errors:
+        if events.awaiting_input or events.exited or events.errors:
             return
     raise TimeoutError("Turn timed out")
 
 
-def check_prerequisites():
-    """Check if claude_agent_sdk is available and OAuth is set up."""
+def check_sidecar_health(url):
+    """Check if sidecar is reachable."""
     try:
-        import claude_agent_sdk  # noqa
-    except ImportError:
-        print("ERROR: claude_agent_sdk not installed")
+        parsed = urllib.parse.urlparse(url)
+        conn = http.client.HTTPConnection(parsed.hostname, parsed.port or 80, timeout=5)
+        conn.request("GET", "/health")
+        resp = conn.getresponse()
+        data = resp.read().decode("utf-8")
+        conn.close()
+        if resp.status == 200:
+            return True
+        print(f"ERROR: Sidecar returned {resp.status}: {data}")
+        return False
+    except Exception as e:
+        print(f"ERROR: Cannot connect to sidecar: {e}")
         return False
 
-    creds_path = os.path.expanduser("~/.claude/.credentials.json")
-    if not os.path.exists(creds_path):
-        print(f"ERROR: No OAuth credentials at {creds_path}")
-        print("TIP: Run 'claude' CLI and authenticate first")
-        return False
 
-    print(f"OAuth credentials: {creds_path}")
-    return True
-
-
-async def run_test():
-    from tether.runner.claude_local import ClaudeLocalRunner
+async def run_test(sidecar_url):
+    from tether.runner.sidecar import SidecarRunner
     from tether import store as store_module
     import importlib
 
     events = Events()
-    runner = ClaudeLocalRunner(events)
+    runner = SidecarRunner(events)
     secret = random.randint(100, 999)
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -103,7 +107,6 @@ async def run_test():
 
         session = store.create_session("test", "main")
         session.state = store_module.SessionState.RUNNING
-        session.directory = tmpdir
         store.update_session(session)
         store.set_workdir(session.id, tmpdir, managed=False)
 
@@ -132,7 +135,7 @@ async def run_test():
 
         response = events.get_text()
         if str(secret) in response:
-            print(f"PASS: Claude remembered {secret}")
+            print(f"PASS: Codex remembered {secret}")
             await runner.stop(session.id)
             return True
         else:
@@ -142,18 +145,25 @@ async def run_test():
 
 
 def main():
+    from tether.settings import settings
+
     print("=" * 50)
-    print("Claude Local Runner Smoke Test (Agent SDK)")
+    print("Codex SDK Sidecar Runner Smoke Test")
     print("=" * 50)
     print()
 
-    if not check_prerequisites():
+    sidecar_url = settings.codex_sidecar_url()
+    print(f"Sidecar URL: {sidecar_url}")
+
+    if not check_sidecar_health(sidecar_url):
+        print("\nTIP: Start the sidecar with: cd codex-sdk-sidecar && npm start")
         sys.exit(1)
 
+    print("Sidecar: OK")
     print()
 
     try:
-        success = asyncio.run(run_test())
+        success = asyncio.run(run_test(sidecar_url))
         sys.exit(0 if success else 1)
     except Exception as e:
         print(f"\nFAIL: {e}")
