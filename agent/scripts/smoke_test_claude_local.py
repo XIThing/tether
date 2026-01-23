@@ -104,7 +104,7 @@ async def run_test(tmpdir):
     await runner.start(
         session.id,
         "Read the file test_marker.txt and tell me what's inside. Reply with just the content.",
-        approval_choice=0
+        approval_choice=2
     )
     await wait_for_turn(events)
     print("\n")

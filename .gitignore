@@ -23,6 +23,7 @@ agent/data/
 # Misc
 .DS_Store
 .env
+docker.env
 .idea
 
 # Reference data
