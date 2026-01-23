@@ -10,6 +10,7 @@ Requires: Running sidecar at TETHER_CODEX_SIDECAR_URL (default: http://localhost
 
 import asyncio
 import http.client
+import importlib
 import os
 import random
 import sys
@@ -20,6 +21,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("TETHER_AGENT_DEV_MODE", "1")
 os.environ.setdefault("TETHER_AGENT_ADAPTER", "codex_sdk_sidecar")
+
+from tether import store as store_module
+from tether.runner.sidecar import SidecarRunner
+from tether.settings import settings
 
 
 class Events:
@@ -90,88 +95,80 @@ def check_sidecar_health(url):
         return False
 
 
-async def run_test(sidecar_url):
-    from tether.runner.sidecar import SidecarRunner
-    from tether import store as store_module
-    import importlib
-
+async def run_test(tmpdir):
     events = Events()
     runner = SidecarRunner(events)
     secret = random.randint(100, 999)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        os.environ["TETHER_AGENT_DATA_DIR"] = tmpdir
-        importlib.reload(store_module)
-        from tether.store import store
+    os.environ["TETHER_AGENT_DATA_DIR"] = tmpdir
+    importlib.reload(store_module)
 
-        session = store.create_session("test", "main")
-        session.state = store_module.SessionState.RUNNING
-        store.update_session(session)
-        store.set_workdir(session.id, tmpdir, managed=False)
+    session = store_module.store.create_session("test", "main")
+    session.state = store_module.SessionState.RUNNING
+    store_module.store.update_session(session)
+    store_module.store.set_workdir(session.id, tmpdir, managed=False)
 
-        # Create test file for working directory verification
-        marker = f"SMOKE_TEST_{random.randint(10000, 99999)}"
-        test_file = os.path.join(tmpdir, "test_marker.txt")
-        with open(test_file, "w") as f:
-            f.write(marker)
+    # Create test file for working directory verification
+    marker = f"SMOKE_TEST_{random.randint(10000, 99999)}"
+    test_file = os.path.join(tmpdir, "test_marker.txt")
+    with open(test_file, "w") as f:
+        f.write(marker)
 
-        # Turn 1: Verify working directory
-        print(f"=== Turn 1: Read test_marker.txt (contains {marker}) ===")
-        await runner.start(
-            session.id,
-            "Read the file test_marker.txt and tell me what's inside. Reply with just the content.",
-            approval_choice=0
-        )
-        await wait_for_turn(events)
-        print("\n")
+    # Turn 1: Verify working directory
+    print(f"=== Turn 1: Read test_marker.txt (contains {marker}) ===")
+    await runner.start(
+        session.id,
+        "Read the file test_marker.txt and tell me what's inside. Reply with just the content.",
+        approval_choice=0
+    )
+    await wait_for_turn(events)
+    print("\n")
 
-        if events.errors:
-            return False
+    if events.errors:
+        return False
 
-        response = events.get_text()
-        if marker not in response:
-            print(f"FAIL: Working directory test - expected {marker} in response")
-            await runner.stop(session.id)
-            return False
-        print(f"PASS: Working directory correct (found {marker})")
+    response = events.get_text()
+    if marker not in response:
+        print(f"FAIL: Working directory test - expected {marker} in response")
+        await runner.stop(session.id)
+        return False
+    print(f"PASS: Working directory correct (found {marker})")
 
-        # Turn 2: Remember number
-        events.reset()
-        print(f"\n=== Turn 2: Remember {secret} ===")
-        await runner.send_input(
-            session.id,
-            f"Remember this number: {secret}. Reply only with 'OK'.",
-        )
-        await wait_for_turn(events)
-        print("\n")
+    # Turn 2: Remember number
+    events.reset()
+    print(f"\n=== Turn 2: Remember {secret} ===")
+    await runner.send_input(
+        session.id,
+        f"Remember this number: {secret}. Reply only with 'OK'.",
+    )
+    await wait_for_turn(events)
+    print("\n")
 
-        if events.errors:
-            return False
+    if events.errors:
+        return False
 
-        # Turn 3: Recall number
-        events.reset()
-        print("=== Turn 3: What was the number? ===")
-        await runner.send_input(session.id, "What number did I ask you to remember? Reply with just the number.")
-        await wait_for_turn(events)
-        print("\n")
+    # Turn 3: Recall number
+    events.reset()
+    print("=== Turn 3: What was the number? ===")
+    await runner.send_input(session.id, "What number did I ask you to remember? Reply with just the number.")
+    await wait_for_turn(events)
+    print("\n")
 
-        if events.errors:
-            return False
+    if events.errors:
+        return False
 
-        response = events.get_text()
-        if str(secret) in response:
-            print(f"PASS: Codex remembered {secret}")
-            await runner.stop(session.id)
-            return True
-        else:
-            print(f"FAIL: Expected {secret} in response")
-            await runner.stop(session.id)
-            return False
+    response = events.get_text()
+    if str(secret) in response:
+        print(f"PASS: Codex remembered {secret}")
+        await runner.stop(session.id)
+        return True
+    else:
+        print(f"FAIL: Expected {secret} in response")
+        await runner.stop(session.id)
+        return False
 
 
 def main():
-    from tether.settings import settings
-
     print("=" * 50)
     print("Codex SDK Sidecar Runner Smoke Test")
     print("=" * 50)
@@ -187,14 +184,15 @@ def main():
     print("Sidecar: OK")
     print()
 
-    try:
-        success = asyncio.run(run_test(sidecar_url))
-        sys.exit(0 if success else 1)
-    except Exception as e:
-        print(f"\nFAIL: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            success = asyncio.run(run_test(tmpdir))
+            sys.exit(0 if success else 1)
+        except Exception as e:
+            print(f"\nFAIL: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 
 if __name__ == "__main__":
