@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Smoke test for the Claude runner (Anthropic API).
 
-Runs a multi-turn conversation test:
-1. Ask Claude to remember a random number
-2. Ask Claude to repeat it back
-3. Verify the response
+Tests:
+1. Working directory - create a file, ask model to read it
+2. Multi-turn memory - ask to remember a number, then recall it
 
 Requires: ANTHROPIC_API_KEY environment variable
 """
@@ -97,11 +96,17 @@ async def run_test():
         store.update_session(session)
         store.set_workdir(session.id, tmpdir, managed=False)
 
-        # Turn 1: Remember number
-        print(f"=== Turn 1: Remember {secret} ===")
+        # Create test file for working directory verification
+        marker = f"SMOKE_TEST_{random.randint(10000, 99999)}"
+        test_file = os.path.join(tmpdir, "test_marker.txt")
+        with open(test_file, "w") as f:
+            f.write(marker)
+
+        # Turn 1: Verify working directory
+        print(f"=== Turn 1: Read test_marker.txt (contains {marker}) ===")
         await runner.start(
             session.id,
-            f"Remember this number: {secret}. Reply only with 'OK'.",
+            "Read the file test_marker.txt and tell me what's inside. Reply with just the content.",
             approval_choice=0
         )
         await wait_for_turn(events)
@@ -110,9 +115,29 @@ async def run_test():
         if events.errors:
             return False
 
-        # Turn 2: Recall number
+        response = events.get_text()
+        if marker not in response:
+            print(f"FAIL: Working directory test - expected {marker} in response")
+            await runner.stop(session.id)
+            return False
+        print(f"PASS: Working directory correct (found {marker})")
+
+        # Turn 2: Remember number
         events.reset()
-        print("=== Turn 2: What was the number? ===")
+        print(f"\n=== Turn 2: Remember {secret} ===")
+        await runner.send_input(
+            session.id,
+            f"Remember this number: {secret}. Reply only with 'OK'.",
+        )
+        await wait_for_turn(events)
+        print("\n")
+
+        if events.errors:
+            return False
+
+        # Turn 3: Recall number
+        events.reset()
+        print("=== Turn 3: What was the number? ===")
         await runner.send_input(session.id, "What number did I ask you to remember? Reply with just the number.")
         await wait_for_turn(events)
         print("\n")
