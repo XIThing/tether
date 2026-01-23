@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
+.coverage
 
 # Virtual environments
 .venv/
