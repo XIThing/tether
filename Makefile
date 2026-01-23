@@ -1,47 +1,40 @@
-.PHONY: help agent-venv agent-install agent-dev agent-run ui-install ui-dev ui-build ui-build-prod fmt
+.PHONY: start stop logs status build clean dev dev-stop
 
-PYTHON ?= python3
-VENV_DIR ?= agent/.venv
-VENV_BIN := $(VENV_DIR)/bin
-PIP := $(VENV_BIN)/pip
-PY := $(VENV_BIN)/python
-BLACK := $(VENV_BIN)/black
+# Start the agent (default)
+start:
+	docker compose up -d agent
 
-help:
-	@echo "Common targets:"
-	@echo "  agent-venv      Create Python venv in agent/.venv"
-	@echo "  agent-install   Install agent (editable)"
-	@echo "  agent-dev       Install agent + dev tools (Black)"
-	@echo "  agent-run       Run the agent server"
-	@echo "  ui-install      Install UI deps"
-	@echo "  ui-dev          Run UI dev server"
-	@echo "  ui-build        Build UI (Vite)"
-	@echo "  ui-build-prod   Build UI + copy into agent"
-	@echo "  fmt             Format Python with Black"
+# Dev mode: run sidecar/telegram in Docker while agent+UI run locally
+dev:
+	docker compose -f docker-compose.dev.yml up
 
-agent-venv:
-	$(PYTHON) -m venv $(VENV_DIR)
+dev-stop:
+	docker compose -f docker-compose.dev.yml down
 
-agent-install: agent-venv
-	$(PIP) install -e agent
+# Start with Codex sidecar
+start-codex:
+	docker compose --profile codex up -d
 
-agent-dev: agent-venv
-	$(PIP) install -e "agent[dev]"
+# Start with Telegram bridge
+start-telegram:
+	docker compose --profile telegram up -d
 
-agent-run: agent-install
-	$(PY) -m tether.main
+# Stop all services
+stop:
+	docker compose --profile codex --profile telegram down
 
-ui-install:
-	cd ui && npm install
+# View logs
+logs:
+	docker compose logs -f
 
-ui-dev: ui-install
-	cd ui && npm run dev
+# Show status
+status:
+	docker compose ps -a
 
-ui-build:
-	cd ui && npm run build
+# Rebuild images
+build:
+	docker compose build
 
-ui-build-prod: ui-build
-	./scripts/build_ui.sh
-
-fmt: agent-dev
-	$(BLACK) agent/tether
+# Remove containers and volumes
+clean:
+	docker compose --profile codex --profile telegram down -v
