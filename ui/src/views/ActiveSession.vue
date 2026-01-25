@@ -252,6 +252,10 @@ const start = async (value: string) => {
     error.value = "Prompt required."
     return
   }
+  // Ensure session data is loaded before sending (prevents race after session switch)
+  if (!session.value) {
+    await ensureSession()
+  }
   sending.value = true
   pendingUserInput.value = value // Mark as pending to avoid duplicate from event
   messages.value.push({ role: "user", text: value })
@@ -306,6 +310,10 @@ const toggleDetails = (index: number) => {
 }
 
 const onEvent = (event: EventEnvelope) => {
+  // Ignore events for other sessions (can happen during session switch race)
+  if (event.session_id !== activeSessionId.value) {
+    return
+  }
   const seq = Number((event as { seq?: number }).seq || 0)
   if (seq && seq <= lastSeq.value) return
   if (seq) lastSeq.value = seq

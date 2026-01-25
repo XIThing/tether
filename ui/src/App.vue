@@ -4,55 +4,71 @@
       <header class="sticky top-0 z-20 border-b border-stone-800/40 bg-stone-950/95 backdrop-blur">
         <div class="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-4">
           <!-- Left: menu + title -->
-          <div class="flex items-center gap-3">
+          <div class="flex min-w-0 flex-1 items-center gap-3">
             <button
-              class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-300 transition hover:bg-stone-800"
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-stone-300 transition hover:bg-stone-800"
               @click="drawerOpen = true"
             >
               <Menu class="h-5 w-5" />
             </button>
-            <div v-if="sessionTitle" class="flex items-center gap-2">
-              <span
-                v-if="statusDot"
-                class="h-2 w-2 rounded-full"
-                :class="statusDot"
-              ></span>
-              <span class="text-sm font-medium text-stone-100">{{ sessionTitle }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-stone-100">Tether</span>
+                <span
+                  v-if="statusDot"
+                  class="h-2 w-2 shrink-0 rounded-full"
+                  :class="statusDot"
+                  :title="activeSession?.state"
+                ></span>
+              </div>
+              <p v-if="activeSession" class="truncate text-xs text-stone-500">
+                {{ activeSession.name || activeSession.directory || 'New session' }}
+              </p>
             </div>
-            <span v-else class="text-sm font-medium text-stone-400">Tether</span>
           </div>
 
           <!-- Right: actions -->
-          <div class="relative" ref="menuRef">
+          <div class="flex items-center gap-1">
             <button
               v-if="activeSessionId"
               class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
-              @click="toggleSessionMenu"
-              title="Options"
+              :disabled="syncing"
+              @click="handleSync"
+              title="Sync messages from CLI"
             >
-              <MoreVertical class="h-5 w-5" />
+              <RefreshCw class="h-4 w-4" :class="syncing ? 'animate-spin' : ''" />
             </button>
-
-            <!-- Dropdown menu -->
-            <transition name="fade">
-              <div
-                v-if="menuOpen"
-                class="absolute right-0 top-full mt-1 w-40 rounded-xl border border-stone-800 bg-stone-900 py-1 shadow-xl"
+            <div class="relative" ref="menuRef">
+              <button
+                v-if="activeSessionId"
+                class="flex h-10 w-10 items-center justify-center rounded-lg text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
+                @click="toggleSessionMenu"
+                title="Options"
               >
-                <button
-                  class="w-full px-3 py-2 text-left text-sm text-stone-300 transition hover:bg-stone-800"
-                  @click="openRename"
+                <MoreVertical class="h-5 w-5" />
+              </button>
+
+              <!-- Dropdown menu -->
+              <transition name="fade">
+                <div
+                  v-if="menuOpen"
+                  class="absolute right-0 top-full mt-1 w-40 rounded-xl border border-stone-800 bg-stone-900 py-1 shadow-xl"
                 >
-                  Rename
-                </button>
-                <button
-                  class="w-full px-3 py-2 text-left text-sm text-stone-300 transition hover:bg-stone-800"
-                  @click="openInfo"
-                >
-                  Session info
-                </button>
-              </div>
-            </transition>
+                  <button
+                    class="w-full px-3 py-2 text-left text-sm text-stone-300 transition hover:bg-stone-800"
+                    @click="openRename"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    class="w-full px-3 py-2 text-left text-sm text-stone-300 transition hover:bg-stone-800"
+                    @click="openInfo"
+                  >
+                    Session info
+                  </button>
+                </div>
+              </transition>
+            </div>
           </div>
         </div>
       </header>
@@ -198,7 +214,14 @@
         </div>
 
         <!-- Footer -->
-        <div class="border-t border-stone-800/50 px-3 py-3">
+        <div class="border-t border-stone-800/50 px-3 py-3 space-y-1">
+          <button
+            class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
+            @click="openExternalBrowser"
+          >
+            <Link class="h-4 w-4" />
+            Attach to session
+          </button>
           <button
             class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
             @click="openSettings"
@@ -209,6 +232,13 @@
         </div>
       </SheetContent>
     </Sheet>
+
+    <!-- External session browser -->
+    <ExternalSessionBrowser
+      :open="externalBrowserOpen"
+      @update:open="externalBrowserOpen = $event"
+      @attached="handleSessionAttached"
+    />
     </div>
 
     <!-- Settings dialog -->
@@ -331,14 +361,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { RouterView } from "vue-router";
-import { Folder, Menu, GitBranch, MoreVertical, Plus, Settings as SettingsIcon, X } from "lucide-vue-next";
+import { RouterView, useRoute, useRouter } from "vue-router";
+import { Folder, Menu, GitBranch, MoreVertical, Plus, Settings as SettingsIcon, X, Link, RefreshCw } from "lucide-vue-next";
 import {
   createSession,
   deleteSession,
   interruptSession,
   listSessions,
   checkDirectory,
+  syncSession,
   AUTH_REQUIRED_EVENT,
   getToken,
   setToken,
@@ -355,6 +386,10 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import Settings from "./views/Settings.vue";
+import ExternalSessionBrowser from "@/components/external/ExternalSessionBrowser.vue";
+
+const router = useRouter();
+const route = useRoute();
 
 const drawerOpen = ref(false);
 const sessions = ref<Session[]>([]);
@@ -372,8 +407,10 @@ const directoryError = ref("");
 const createPanelOpen = ref(false);
 let directoryTimer: number | null = null;
 const settingsOpen = ref(false);
+const externalBrowserOpen = ref(false);
 const menuOpen = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
+const syncing = ref(false);
 const menuHandler = (event: MouseEvent | TouchEvent) => {
   if (!menuOpen.value) {
     return;
@@ -471,11 +508,35 @@ const openSettings = () => {
   settingsOpen.value = true;
 };
 
+const openExternalBrowser = () => {
+  externalBrowserOpen.value = true;
+};
+
+const handleSessionAttached = async (sessionId: string) => {
+  // Refresh sessions list and select the new session
+  await refreshSessions();
+  activeSessionId.value = sessionId;
+  drawerOpen.value = false;
+};
+
 const closeSettings = () => {
   settingsOpen.value = false;
 };
 
 const maybeSelectDefaultSession = (list: Session[]) => {
+  // If there's a session ID in the URL, use that
+  const routeId = route.params.id as string | undefined;
+  if (routeId) {
+    // Only set if the session exists in the list
+    const exists = list.some((s) => s.id === routeId);
+    if (exists) {
+      activeSessionId.value = routeId;
+      return;
+    }
+    // Session doesn't exist, clear URL and fall through to default selection
+    router.replace({ path: "/" });
+  }
+  // Otherwise select first session if none selected
   if (!activeSessionId.value && list.length) {
     activeSessionId.value = list[0].id;
   }
@@ -619,6 +680,25 @@ const openInfo = () => {
   menuOpen.value = false;
 };
 
+const handleSync = async () => {
+  if (!activeSessionId.value || syncing.value) return;
+  syncing.value = true;
+  error.value = "";
+  try {
+    const result = await syncSession(activeSessionId.value);
+    if (result.synced > 0) {
+      console.log(`Synced ${result.synced} new messages`);
+    }
+  } catch (err) {
+    // 400 means not an attached session - just ignore silently
+    if (!String(err).includes("400")) {
+      error.value = String(err);
+    }
+  } finally {
+    syncing.value = false;
+  }
+};
+
 const removeSession = async (id: string) => {
   if (deleting.value) {
     return;
@@ -688,7 +768,25 @@ watch(activeSessionId, (newId, oldId) => {
     return;
   }
   refreshSessions().catch(() => undefined);
+  // Sync URL when session changes
+  const routeId = route.params.id as string | undefined;
+  if (newId && newId !== routeId) {
+    router.replace({ name: "session", params: { id: newId } });
+  } else if (!newId && routeId) {
+    router.replace({ path: "/" });
+  }
 });
+
+// Sync activeSessionId from URL when route changes (e.g., browser back/forward)
+watch(
+  () => route.params.id,
+  (newRouteId) => {
+    const id = newRouteId as string | undefined;
+    if (id && id !== activeSessionId.value) {
+      activeSessionId.value = id;
+    }
+  }
+);
 
 onMounted(refreshSessions);
 onMounted(() => {
