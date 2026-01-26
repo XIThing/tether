@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import shutil
-import sqlite3
 import tempfile
 import uuid
 from collections import deque
@@ -15,7 +14,10 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 
 import structlog
+from sqlalchemy import func as sa_func
+from sqlmodel import select
 
+from tether.db import get_session as get_db_session
 from tether.git import has_git_repository, normalize_directory_path
 from tether.models import Message, RepoRef, Session, SessionState
 from tether.settings import settings
@@ -24,112 +26,32 @@ logger = structlog.get_logger("tether.store")
 
 
 class SessionStore:
-    """Session registry with SQLite persistence and per-session process bookkeeping."""
+    """Session registry with SQLModel persistence and per-session process bookkeeping."""
 
     def __init__(self) -> None:
         self._data_dir = settings.data_dir()
-        self._db_path = os.path.join(self._data_dir, "sessions.db")
         self._db_lock = Lock()
         os.makedirs(self._data_dir, exist_ok=True)
         os.makedirs(os.path.join(self._data_dir, "sessions"), exist_ok=True)
-        self._db = sqlite3.connect(self._db_path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL;")
-        self._db.execute("PRAGMA synchronous=NORMAL;")
-        self._init_db()
         self._sessions: dict[str, Session] = {}
         self._seq: dict[str, int] = {}
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
         self._procs: dict[str, asyncio.subprocess.Process] = {}
-        self._workdirs: dict[str, str] = {}
-        self._master_fds: dict[str, int] = {}
-        self._stdins: dict[str, asyncio.StreamWriter] = {}
-        self._input_locks: dict[str, asyncio.Lock] = {}
-        self._prompt_sent: dict[str, bool] = {}
         self._pending_inputs: dict[str, list[str]] = {}
-        self._runner_session_ids: dict[str, str] = {}
         self._recent_output: dict[str, deque[str]] = {}
-        self._workdir_managed: dict[str, bool] = {}
         self._claude_tasks: dict[str, asyncio.Task] = {}
         self._stop_requested: dict[str, bool] = {}
+        self._synced_message_counts: dict[str, int] = {}
         self._load_sessions()
-
-    def _init_db(self) -> None:
-        with self._db_lock:
-            self._db.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id TEXT PRIMARY KEY,
-                    repo_id TEXT NOT NULL,
-                    repo_display TEXT NOT NULL,
-                    repo_ref_type TEXT NOT NULL,
-                    repo_ref_value TEXT NOT NULL,
-                    state TEXT NOT NULL,
-                    name TEXT,
-                    created_at TEXT NOT NULL,
-                    started_at TEXT,
-                    ended_at TEXT,
-                    last_activity_at TEXT NOT NULL,
-                    exit_code INTEGER,
-                    summary TEXT,
-                    runner_header TEXT,
-                    runner_type TEXT,
-                    runner_session_id TEXT UNIQUE,
-                    directory TEXT,
-                    directory_has_git INTEGER DEFAULT 0,
-                    workdir_managed INTEGER DEFAULT 0
-                )
-                """)
-            self._db.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT,
-                    created_at TEXT NOT NULL,
-                    seq INTEGER NOT NULL,
-                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-                )
-                """)
-            self._db.commit()
 
     def _load_sessions(self) -> None:
         with self._db_lock:
-            rows = self._db.execute("SELECT * FROM sessions").fetchall()
-        for row in rows:
-            session, workdir_managed = self._session_from_row(row)
-            self._sessions[session.id] = session
-            self._seq[session.id] = 0
-            self._subscribers.setdefault(session.id, [])
-            if session.directory:
-                self._workdirs[session.id] = session.directory
-                self._workdir_managed[session.id] = workdir_managed
-            if row["runner_session_id"]:
-                self._runner_session_ids[session.id] = row["runner_session_id"]
-
-    def _session_from_row(self, row: sqlite3.Row) -> tuple[Session, bool]:
-        return (
-            Session(
-                id=row["id"],
-                repo_id=row["repo_id"],
-                repo_display=row["repo_display"],
-                repo_ref=RepoRef(
-                    type=row["repo_ref_type"], value=row["repo_ref_value"]
-                ),
-                state=SessionState(row["state"]),
-                name=row["name"],
-                created_at=row["created_at"],
-                started_at=row["started_at"],
-                ended_at=row["ended_at"],
-                last_activity_at=row["last_activity_at"],
-                exit_code=row["exit_code"],
-                summary=row["summary"],
-                runner_header=row["runner_header"],
-                runner_type=row["runner_type"],
-                directory=row["directory"],
-                directory_has_git=bool(row["directory_has_git"]),
-            ),
-            bool(row["workdir_managed"]),
-        )
+            with get_db_session() as db:
+                rows = db.exec(select(Session)).all()
+                for row in rows:
+                    self._sessions[row.id] = row
+                    self._seq[row.id] = 0
+                    self._subscribers.setdefault(row.id, [])
 
     def _now(self) -> str:
         """Return an ISO8601 UTC timestamp suitable for API payloads."""
@@ -153,8 +75,9 @@ class SessionStore:
             id=session_id,
             repo_id=repo_id,
             repo_display=repo_id,
-            repo_ref=RepoRef(type="path", value=repo_id),
-            state=SessionState.CREATED,
+            repo_ref_type="path",
+            repo_ref_value=repo_id,
+            state=SessionState.CREATED.value,
             name="New session",
             created_at=now,
             started_at=None,
@@ -189,17 +112,20 @@ class SessionStore:
         if not session:
             return False
         with self._db_lock:
-            self._db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            self._db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-            self._db.commit()
+            with get_db_session() as db:
+                # Delete messages first
+                messages = db.exec(select(Message).where(Message.session_id == session_id)).all()
+                for msg in messages:
+                    db.delete(msg)
+                # Delete session
+                db_session = db.get(Session, session_id)
+                if db_session:
+                    db.delete(db_session)
+                db.commit()
         self._seq.pop(session_id, None)
         self._subscribers.pop(session_id, None)
         self.clear_process(session_id)
-        self.clear_master_fd(session_id)
-        self.clear_stdin(session_id)
-        self.clear_prompt_sent(session_id)
         self.clear_pending_inputs(session_id)
-        self.clear_runner_session_id(session_id)
         self.clear_last_output(session_id)
         self.clear_workdir(session_id)
         self.clear_claude_task(session_id)
@@ -209,22 +135,22 @@ class SessionStore:
     def clear_all_data(self) -> None:
         """Delete all persisted sessions and in-memory session state."""
         with self._db_lock:
-            self._db.execute("DELETE FROM messages")
-            self._db.execute("DELETE FROM sessions")
-            self._db.commit()
+            with get_db_session() as db:
+                # Delete all messages
+                messages = db.exec(select(Message)).all()
+                for msg in messages:
+                    db.delete(msg)
+                # Delete all sessions
+                sessions = db.exec(select(Session)).all()
+                for sess in sessions:
+                    db.delete(sess)
+                db.commit()
         self._sessions.clear()
         self._seq.clear()
         self._subscribers.clear()
         self._procs.clear()
-        self._workdirs.clear()
-        self._master_fds.clear()
-        self._stdins.clear()
-        self._input_locks.clear()
-        self._prompt_sent.clear()
         self._pending_inputs.clear()
-        self._runner_session_ids.clear()
         self._recent_output.clear()
-        self._workdir_managed.clear()
         self._claude_tasks.clear()
         self._stop_requested.clear()
         logs_root = os.path.join(self._data_dir, "sessions")
@@ -278,58 +204,9 @@ class SessionStore:
 
     def _persist_session(self, session: Session) -> None:
         with self._db_lock:
-            self._db.execute(
-                """
-                INSERT INTO sessions (
-                    id, repo_id, repo_display, repo_ref_type, repo_ref_value, state,
-                    name, created_at, started_at, ended_at, last_activity_at,
-                    exit_code, summary, runner_header, runner_type,
-                    directory, directory_has_git, workdir_managed, runner_session_id
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    repo_id=excluded.repo_id,
-                    repo_display=excluded.repo_display,
-                    repo_ref_type=excluded.repo_ref_type,
-                    repo_ref_value=excluded.repo_ref_value,
-                    state=excluded.state,
-                    name=excluded.name,
-                    created_at=excluded.created_at,
-                    started_at=excluded.started_at,
-                    ended_at=excluded.ended_at,
-                    last_activity_at=excluded.last_activity_at,
-                    exit_code=excluded.exit_code,
-                    summary=excluded.summary,
-                    runner_header=excluded.runner_header,
-                    runner_type=excluded.runner_type,
-                    directory=excluded.directory,
-                    directory_has_git=excluded.directory_has_git,
-                    workdir_managed=excluded.workdir_managed,
-                    runner_session_id=excluded.runner_session_id
-                """,
-                (
-                    session.id,
-                    session.repo_id,
-                    session.repo_display,
-                    session.repo_ref.type,
-                    session.repo_ref.value,
-                    session.state.value,
-                    session.name,
-                    session.created_at,
-                    session.started_at,
-                    session.ended_at,
-                    session.last_activity_at,
-                    session.exit_code,
-                    session.summary,
-                    session.runner_header,
-                    session.runner_type,
-                    session.directory,
-                    int(session.directory_has_git),
-                    int(self._workdir_managed.get(session.id, False)),
-                    self._runner_session_ids.get(session.id),
-                ),
-            )
-            self._db.commit()
+            with get_db_session() as db:
+                db.merge(session)
+                db.commit()
 
     def _append_event_log(self, session_id: str, event: dict) -> None:
         path = os.path.join(self._data_dir, "sessions", session_id, "events.jsonl")
@@ -354,7 +231,7 @@ class SessionStore:
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         removed = 0
         for session in list(self._sessions.values()):
-            if session.state in (SessionState.RUNNING, SessionState.INTERRUPTING):
+            if session.state in (SessionState.RUNNING.value, SessionState.INTERRUPTING.value):
                 continue
             ts = session.ended_at or session.last_activity_at or session.created_at
             if not ts:
@@ -378,47 +255,6 @@ class SessionStore:
 
     def clear_process(self, session_id: str) -> None:
         self._procs.pop(session_id, None)
-
-    def set_master_fd(self, session_id: str, fd: int) -> None:
-        """Track the PTY master fd for a session."""
-        self._master_fds[session_id] = fd
-
-    def get_master_fd(self, session_id: str) -> int | None:
-        """Return the PTY master fd, if present."""
-        return self._master_fds.get(session_id)
-
-    def clear_master_fd(self, session_id: str) -> None:
-        self._master_fds.pop(session_id, None)
-
-    def set_stdin(self, session_id: str, stdin: asyncio.StreamWriter) -> None:
-        """Store the stdin stream for a session's subprocess."""
-        self._stdins[session_id] = stdin
-
-    def get_stdin(self, session_id: str) -> asyncio.StreamWriter | None:
-        """Return the stored stdin stream for a session."""
-        return self._stdins.get(session_id)
-
-    def clear_stdin(self, session_id: str) -> None:
-        self._stdins.pop(session_id, None)
-
-    def get_input_lock(self, session_id: str) -> asyncio.Lock:
-        """Return a per-session lock guarding stdin writes."""
-        lock = self._input_locks.get(session_id)
-        if not lock:
-            lock = asyncio.Lock()
-            self._input_locks[session_id] = lock
-        return lock
-
-    def is_prompt_sent(self, session_id: str) -> bool:
-        """Check whether the initial prompt was sent to the runner."""
-        return self._prompt_sent.get(session_id, False)
-
-    def mark_prompt_sent(self, session_id: str) -> None:
-        """Record that the initial prompt was sent to the runner."""
-        self._prompt_sent[session_id] = True
-
-    def clear_prompt_sent(self, session_id: str) -> None:
-        self._prompt_sent.pop(session_id, None)
 
     def add_pending_input(self, session_id: str, text: str) -> None:
         """Queue input to send once the runner is ready."""
@@ -447,21 +283,21 @@ class SessionStore:
 
     def set_runner_session_id(self, session_id: str, runner_session_id: str) -> None:
         """Store the runner-specific session id and persist to database."""
-        self._runner_session_ids[session_id] = runner_session_id
-        # Persist to database
         session = self._sessions.get(session_id)
         if session:
+            session.runner_session_id = runner_session_id
             self._persist_session(session)
 
     def get_runner_session_id(self, session_id: str) -> str | None:
         """Fetch the runner-specific session id."""
-        return self._runner_session_ids.get(session_id)
+        session = self._sessions.get(session_id)
+        return session.runner_session_id if session else None
 
     def clear_runner_session_id(self, session_id: str) -> None:
-        self._runner_session_ids.pop(session_id, None)
-        # Persist the change to database
+        """Clear the runner-specific session id."""
         session = self._sessions.get(session_id)
         if session:
+            session.runner_session_id = None
             self._persist_session(session)
 
     def find_session_by_runner_session_id(self, runner_session_id: str) -> str | None:
@@ -473,23 +309,17 @@ class SessionStore:
         Returns:
             The Tether session ID if found, None otherwise.
         """
-        for session_id, rsid in self._runner_session_ids.items():
-            if rsid == runner_session_id:
-                # Verify the session still exists
-                if session_id in self._sessions:
-                    return session_id
+        for session in self._sessions.values():
+            if session.runner_session_id == runner_session_id:
+                return session.id
         return None
 
     def set_synced_message_count(self, session_id: str, count: int) -> None:
         """Store the number of messages synced from external session."""
-        if not hasattr(self, "_synced_message_counts"):
-            self._synced_message_counts: dict[str, int] = {}
         self._synced_message_counts[session_id] = count
 
     def get_synced_message_count(self, session_id: str) -> int:
         """Get the number of messages previously synced from external session."""
-        if not hasattr(self, "_synced_message_counts"):
-            self._synced_message_counts = {}
         return self._synced_message_counts.get(session_id, 0)
 
     def should_emit_output(self, session_id: str, text: str) -> bool:
@@ -539,12 +369,11 @@ class SessionStore:
     def set_workdir(self, session_id: str, path: str, *, managed: bool) -> str:
         """Record a working directory and update the session metadata."""
         normalized = normalize_directory_path(path)
-        self._workdirs[session_id] = normalized
-        self._workdir_managed[session_id] = managed
         session = self._sessions.get(session_id)
         if session:
             session.directory = normalized
             session.directory_has_git = has_git_repository(normalized)
+            session.workdir_managed = managed
             self.update_session(session)
         return normalized
 
@@ -554,17 +383,22 @@ class SessionStore:
         return self.set_workdir(session_id, path, managed=True)
 
     def get_workdir(self, session_id: str) -> str | None:
-        """Return the session working directory, if created."""
-        return self._workdirs.get(session_id)
+        """Return the session working directory, if set."""
+        session = self._sessions.get(session_id)
+        return session.directory if session else None
 
     def clear_workdir(self, session_id: str, *, force: bool = True) -> None:
-        managed = self._workdir_managed.get(session_id, False)
-        if not force and not managed:
+        """Clear the working directory, removing temp dirs if managed."""
+        session = self._sessions.get(session_id)
+        if not session:
             return
-        path = self._workdirs.pop(session_id, None)
-        self._workdir_managed.pop(session_id, None)
-        if path and managed:
+        if not force and not session.workdir_managed:
+            return
+        path = session.directory
+        if path and session.workdir_managed:
             shutil.rmtree(path, ignore_errors=True)
+        session.directory = None
+        session.workdir_managed = False
 
     def add_message(self, session_id: str, role: str, content: object) -> Message:
         """Add a message to conversation history.
@@ -576,21 +410,25 @@ class SessionStore:
         """
         message_id = f"msg_{uuid.uuid4().hex[:12]}"
         now = self._now()
+        content_json = json.dumps(content)
         with self._db_lock:
-            seq_row = self._db.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-            seq = seq_row[0] if seq_row else 1
-            content_json = json.dumps(content)
-            self._db.execute(
-                """
-                INSERT INTO messages (id, session_id, role, content, created_at, seq)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (message_id, session_id, role, content_json, now, seq),
-            )
-            self._db.commit()
+            with get_db_session() as db:
+                max_seq = db.exec(
+                    select(sa_func.coalesce(sa_func.max(Message.seq), 0)).where(
+                        Message.session_id == session_id
+                    )
+                ).one()
+                seq = max_seq + 1
+                message = Message(
+                    id=message_id,
+                    session_id=session_id,
+                    role=role,
+                    content=content_json,
+                    created_at=now,
+                    seq=seq,
+                )
+                db.add(message)
+                db.commit()
         return Message(
             id=message_id,
             session_id=session_id,
@@ -610,15 +448,15 @@ class SessionStore:
             List of message dicts with role and content for Anthropic API.
         """
         with self._db_lock:
-            rows = self._db.execute(
-                "SELECT role, content FROM messages WHERE session_id = ? ORDER BY seq",
-                (session_id,),
-            ).fetchall()
-        messages = []
-        for row in rows:
-            content = json.loads(row[1]) if row[1] else []
-            messages.append({"role": row[0], "content": content})
-        return messages
+            with get_db_session() as db:
+                rows = db.exec(
+                    select(Message).where(Message.session_id == session_id).order_by(Message.seq)
+                ).all()
+                messages = []
+                for row in rows:
+                    content = json.loads(row.content) if row.content else []
+                    messages.append({"role": row.role, "content": content})
+                return messages
 
     def clear_messages(self, session_id: str) -> None:
         """Clear conversation history for a session.
@@ -627,8 +465,11 @@ class SessionStore:
             session_id: Internal session identifier.
         """
         with self._db_lock:
-            self._db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            self._db.commit()
+            with get_db_session() as db:
+                messages = db.exec(select(Message).where(Message.session_id == session_id)).all()
+                for msg in messages:
+                    db.delete(msg)
+                db.commit()
 
     def get_message_count(self, session_id: str) -> int:
         """Get the number of messages for a session.
@@ -640,11 +481,11 @@ class SessionStore:
             Number of messages in the session.
         """
         with self._db_lock:
-            row = self._db.execute(
-                "SELECT COUNT(*) FROM messages WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
-        return row[0] if row else 0
+            with get_db_session() as db:
+                count = db.exec(
+                    select(sa_func.count(Message.id)).where(Message.session_id == session_id)
+                ).one()
+                return count or 0
 
     def set_claude_task(self, session_id: str, task: asyncio.Task) -> None:
         """Track the Claude conversation loop task for a session."""

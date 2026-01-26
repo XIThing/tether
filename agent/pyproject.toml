@@ -12,6 +12,8 @@ dependencies = [
   "pydantic==2.7.4",
   "structlog==24.4.0",
   "anthropic>=0.39.0",
+  "sqlmodel>=0.0.22",
+  "alembic>=1.13",
 ]
 
 [project.optional-dependencies]

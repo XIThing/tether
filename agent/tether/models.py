@@ -1,9 +1,12 @@
-"""Pydantic models for API payloads and session metadata."""
+"""SQLModel models for database tables and API payloads."""
 
 from __future__ import annotations
 
 from enum import Enum
+from typing import Optional
+
 from pydantic import BaseModel
+from sqlmodel import SQLModel, Field
 
 
 class SessionState(str, Enum):
@@ -25,13 +28,13 @@ class ExternalSessionMessage(BaseModel):
     """Normalized message from external session history."""
     role: str  # "user" or "assistant"
     content: str
-    thinking: str | None = None  # Thinking content for assistant messages
+    thinking: str | None = None
     timestamp: str | None = None
 
 
 class ExternalSessionSummary(BaseModel):
     """Summary info for an external session (for list view)."""
-    id: str  # External session ID (UUID)
+    id: str
     runner_type: ExternalRunnerType
     directory: str
     first_prompt: str | None = None
@@ -51,27 +54,6 @@ class RepoRef(BaseModel):
     value: str
 
 
-class Session(BaseModel):
-    """Server-side session metadata exposed over the API."""
-    id: str
-    repo_id: str
-    repo_display: str
-    repo_ref: RepoRef
-    state: SessionState
-    name: str | None = None
-    created_at: str
-    started_at: str | None
-    ended_at: str | None
-    last_activity_at: str
-    exit_code: int | None
-    summary: str | None
-    runner_header: str | None = None
-    runner_type: str | None = None
-    runner_session_id: str | None = None  # External Claude/Codex session ID
-    directory: str | None = None
-    directory_has_git: bool = False
-
-
 class ErrorDetail(BaseModel):
     """Structured error payload for API responses."""
     code: str
@@ -84,11 +66,52 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
-class Message(BaseModel):
-    """Conversation message for Claude runner history."""
-    id: str
-    session_id: str
-    role: str  # "user", "assistant"
-    content: str  # JSON-encoded content blocks
-    seq: int
+# --- Database Tables (SQLModel with table=True) ---
+
+
+class Session(SQLModel, table=True):
+    """Session table and API model."""
+    __tablename__ = "sessions"
+
+    id: str = Field(primary_key=True)
+    repo_id: str
+    repo_display: str
+    repo_ref_type: str
+    repo_ref_value: str
+    state: str
+    name: Optional[str] = None
     created_at: str
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    last_activity_at: str
+    exit_code: Optional[int] = None
+    summary: Optional[str] = None
+    runner_header: Optional[str] = None
+    runner_type: Optional[str] = None
+    runner_session_id: Optional[str] = Field(default=None, unique=True)
+    directory: Optional[str] = None
+    directory_has_git: bool = False
+    workdir_managed: bool = False
+
+    @property
+    def repo_ref(self) -> RepoRef:
+        """Get repo_ref as a RepoRef object."""
+        return RepoRef(type=self.repo_ref_type, value=self.repo_ref_value)
+
+    @repo_ref.setter
+    def repo_ref(self, value: RepoRef) -> None:
+        """Set repo_ref from a RepoRef object."""
+        self.repo_ref_type = value.type
+        self.repo_ref_value = value.value
+
+
+class Message(SQLModel, table=True):
+    """Message table and API model."""
+    __tablename__ = "messages"
+
+    id: str = Field(primary_key=True)
+    session_id: str = Field(foreign_key="sessions.id", ondelete="CASCADE")
+    role: str
+    content: Optional[str] = None
+    created_at: str
+    seq: int

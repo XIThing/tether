@@ -111,9 +111,6 @@ class CodexCliRunner:
             exit_code = proc.returncode
         store.clear_process(session_id)
         store.clear_last_output(session_id)
-        store.clear_master_fd(session_id)
-        store.clear_stdin(session_id)
-        store.clear_prompt_sent(session_id)
         store.clear_pending_inputs(session_id)
         store.clear_runner_session_id(session_id)
         store.clear_workdir(session_id, force=False)

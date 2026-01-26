@@ -23,6 +23,10 @@ def temp_data_dir(tmp_path, monkeypatch) -> str:
     data_dir = str(tmp_path / "data")
     os.makedirs(data_dir, exist_ok=True)
     monkeypatch.setenv("TETHER_AGENT_DATA_DIR", data_dir)
+    # Reset the db engine so it picks up the new data dir
+    from tether.db import reset_engine, init_db
+    reset_engine()
+    init_db()
     return data_dir
 
 
