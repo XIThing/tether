@@ -201,7 +201,7 @@ async def attach_to_external_session(
             return {
                 "session": {
                     "id": existing_session.id,
-                    "state": existing_session.state.value,
+                    "state": existing_session.state.value if hasattr(existing_session.state, "value") else existing_session.state,
                     "name": existing_session.name,
                     "created_at": existing_session.created_at,
                     "started_at": existing_session.started_at,
@@ -291,7 +291,7 @@ async def attach_to_external_session(
     return {
         "session": {
             "id": session.id,
-            "state": session.state.value,
+            "state": session.state.value if hasattr(session.state, "value") else session.state,
             "name": session.name,
             "created_at": session.created_at,
             "started_at": session.started_at,
