@@ -1,40 +1,78 @@
-.PHONY: start stop logs status build clean dev dev-stop
+.PHONY: start start-codex stop build-ui install \
+        docker-start docker-start-codex docker-stop docker-logs docker-status docker-build docker-clean \
+        dev dev-ui dev-stop test
 
-# Start the agent (default)
-start:
-	docker compose up -d agent
+# =============================================================================
+# Native mode (recommended)
+# =============================================================================
 
-# Dev mode: run sidecar/telegram in Docker while agent+UI run locally
+# Install dependencies (run once)
+install:
+	cd agent && pip install -e ".[dev]"
+	cd ui && npm ci
+
+# Build UI for production
+build-ui:
+	cd ui && npm run build
+	rm -rf agent/tether/static_ui
+	cp -r ui/dist agent/tether/static_ui
+
+# Start agent natively (Claude works out of the box)
+start: build-ui
+	cd agent && python -m tether.main
+
+# Start agent + Codex sidecar (sidecar runs in Docker)
+start-codex: build-ui
+	docker compose -f docker-compose.sidecar.yml up -d
+	cd agent && python -m tether.main
+
+# Stop sidecar container
+stop:
+	docker compose -f docker-compose.sidecar.yml down 2>/dev/null || true
+
+# =============================================================================
+# Development mode
+# =============================================================================
+
+# Run UI dev server (hot reload) - run agent separately
+dev-ui:
+	cd ui && npm run dev
+
+# Run sidecar + telegram in Docker for development
 dev:
 	docker compose -f docker-compose.dev.yml up
 
 dev-stop:
 	docker compose -f docker-compose.dev.yml down
 
-# Start with Codex sidecar
-start-codex:
-	docker compose --profile codex up -d
+# Run tests
+test:
+	cd agent && pytest
 
-# Start with Telegram bridge
-start-telegram:
-	docker compose --profile telegram up -d
+# =============================================================================
+# Docker mode (legacy - for users who prefer Docker with volume mounts)
+# =============================================================================
 
-# Stop all services
-stop:
-	docker compose --profile codex --profile telegram down
+docker-start:
+	docker compose -f docker-compose.docker.yml up -d agent
 
-# View logs
-logs:
-	docker compose logs -f
+docker-start-codex:
+	docker compose -f docker-compose.docker.yml --profile codex up -d
 
-# Show status
-status:
-	docker compose ps -a
+docker-start-telegram:
+	docker compose -f docker-compose.docker.yml --profile telegram up -d
 
-# Rebuild images
-build:
-	docker compose build
+docker-stop:
+	docker compose -f docker-compose.docker.yml --profile codex --profile telegram down
 
-# Remove containers and volumes
-clean:
-	docker compose --profile codex --profile telegram down -v
+docker-logs:
+	docker compose -f docker-compose.docker.yml logs -f
+
+docker-status:
+	docker compose -f docker-compose.docker.yml ps -a
+
+docker-build:
+	docker compose -f docker-compose.docker.yml build
+
+docker-clean:
+	docker compose -f docker-compose.docker.yml --profile codex --profile telegram down -v

@@ -1,15 +1,27 @@
 # Contributing
 
-## Development Commands
+## Requirements
 
-```bash
-make dev       # Run sidecar in Docker, agent+UI locally
-make dev-stop  # Stop dev containers
-make build     # Rebuild Docker images
-make clean     # Remove containers and volumes
-```
+- Python 3.10+
+- Node.js 20+
+- Docker (optional, for Codex sidecar)
 
 ## Development Setup
+
+### Quick Start
+
+```bash
+# Install all dependencies
+make install
+
+# Terminal 1: Run agent
+cd agent && python -m tether.main
+
+# Terminal 2: Run UI with hot reload
+make dev-ui
+```
+
+Open http://localhost:5173 (Vite dev server proxies API to agent).
 
 ### Agent (Python)
 
@@ -18,6 +30,11 @@ cd agent
 python -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
+
+# Run agent
+python -m tether.main
+
+# Run tests
 pytest
 ```
 
@@ -26,11 +43,37 @@ pytest
 ```bash
 cd ui
 npm install
-npm run dev
+npm run dev      # Dev server with hot reload
+npm run build    # Production build
+npm test         # Run tests
 ```
 
-### Run Tests
+### With Codex Sidecar
 
 ```bash
-cd agent && pytest
+# Start sidecar in Docker
+docker compose -f docker-compose.sidecar.yml up -d
+
+# Run agent with TETHER_AGENT_ADAPTER=codex_sdk_sidecar
+TETHER_AGENT_ADAPTER=codex_sdk_sidecar python -m tether.main
 ```
+
+## Commands
+
+```bash
+make install      # Install Python and Node dependencies
+make start        # Build UI and run agent
+make start-codex  # Build UI, start sidecar, run agent
+make stop         # Stop sidecar container
+make dev-ui       # Run UI dev server (hot reload)
+make dev          # Run sidecar + telegram in Docker
+make dev-stop     # Stop dev containers
+make test         # Run agent tests
+```
+
+## Code Style
+
+See [background/CODE_STANDARDS.md](background/CODE_STANDARDS.md) for style guidelines.
+
+- Python: Format with Black (`cd agent && python -m black .`)
+- Commits: Single-line, lowercase start, no AI attribution

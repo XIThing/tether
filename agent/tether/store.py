@@ -35,7 +35,7 @@ class SessionRuntime:
     proc: asyncio.subprocess.Process | None = None
     pending_inputs: list[str] = field(default_factory=list)
     recent_output: deque[str] = field(default_factory=lambda: deque(maxlen=10))
-    claude_task: asyncio.Task | None = None
+    runner_task: asyncio.Task | None = None
     stop_requested: bool = False
     synced_message_count: int = 0
 
@@ -498,22 +498,22 @@ class SessionStore:
                 ).one()
                 return count or 0
 
-    def set_claude_task(self, session_id: str, task: asyncio.Task) -> None:
-        """Track the Claude conversation loop task for a session."""
-        self._get_runtime(session_id).claude_task = task
+    def set_runner_task(self, session_id: str, task: asyncio.Task) -> None:
+        """Track the async task running for a session."""
+        self._get_runtime(session_id).runner_task = task
 
-    def get_claude_task(self, session_id: str) -> asyncio.Task | None:
-        """Return the Claude conversation loop task, if any."""
+    def get_runner_task(self, session_id: str) -> asyncio.Task | None:
+        """Return the runner task, if any."""
         runtime = self._runtime.get(session_id)
-        return runtime.claude_task if runtime else None
+        return runtime.runner_task if runtime else None
 
-    def clear_claude_task(self, session_id: str) -> None:
+    def clear_runner_task(self, session_id: str) -> None:
         runtime = self._runtime.get(session_id)
         if runtime:
-            runtime.claude_task = None
+            runtime.runner_task = None
 
     def request_stop(self, session_id: str) -> None:
-        """Signal the Claude conversation loop to stop."""
+        """Signal the runner to stop."""
         self._get_runtime(session_id).stop_requested = True
 
     def is_stop_requested(self, session_id: str) -> bool:

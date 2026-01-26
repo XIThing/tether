@@ -12,10 +12,17 @@ You start a coding agent, walk away for lunch, and come back to find it stuck wa
 - **No API key required** — Uses Claude local OAuth by default
 
 ## Quick Start
+
 ```bash
+# Install dependencies (once)
+make install
+
+# Start agent
 make start
 open http://localhost:8787
 ```
+
+Requirements: Python 3.10+, Node.js 20+
 
 ## Access from Phone
 
@@ -36,7 +43,7 @@ sudo ufw allow 8787/tcp
 ```
 
 **macOS:**
-System Settings → Network → Firewall → Options → Allow incoming connections for Docker
+System Settings > Network > Firewall > Options > Allow incoming connections
 
 ## Configuration
 
@@ -62,12 +69,31 @@ TETHER_AGENT_TOKEN=your-secret-token make start
 ```
 
 ## Commands
+
+### Native Mode (Recommended)
 ```bash
+make install      # Install Python and Node dependencies (once)
 make start        # Start agent with UI (localhost:8787)
-make start-codex  # Start agent with UI + Codex sidecar
-make stop         # Stop all services
-make logs         # View logs
-make status       # Show container status
+make start-codex  # Start agent + Codex sidecar
+make stop         # Stop sidecar container
+make test         # Run tests
+```
+
+### Development
+```bash
+make dev-ui       # Run UI with hot reload (agent runs separately)
+make dev          # Run sidecar + telegram in Docker for dev
+make dev-stop     # Stop dev containers
+```
+
+### Docker Mode (Legacy)
+For users who prefer Docker. Note: requires volume mounts for file access.
+```bash
+make docker-start        # Start agent in Docker
+make docker-start-codex  # Start agent + sidecar in Docker
+make docker-stop         # Stop all containers
+make docker-logs         # View logs
+make docker-build        # Rebuild images
 ```
 
 ## Development
