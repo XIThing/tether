@@ -55,23 +55,23 @@
     <Dialog :open="authModalOpen" @update:open="authModalOpen = $event">
       <DialogContent class="max-w-sm border-stone-800 bg-stone-900">
         <DialogHeader>
-          <DialogTitle class="text-stone-100">Connect</DialogTitle>
+          <DialogTitle class="text-stone-100">Welcome to Tether</DialogTitle>
         </DialogHeader>
         <div class="space-y-4">
           <p class="text-sm text-stone-400">
-            Enter your token to connect.
+            Enter the token from your agent server to get started.
           </p>
           <Input
             v-model="tokenInput"
             type="password"
-            placeholder="AGENT_TOKEN"
+            placeholder="Token"
             class="border-stone-700 bg-stone-800"
           />
           <button
             class="w-full rounded-lg bg-emerald-600 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500"
             @click="saveToken"
           >
-            {{ tokenSaved ? 'Saved!' : 'Save token' }}
+            {{ tokenSaved ? 'Connected!' : 'Connect' }}
           </button>
         </div>
       </DialogContent>
@@ -95,16 +95,6 @@
       :visible="isConnectionError && !sessions.length"
       @retry="refreshSessions"
     />
-
-    <!-- Error toast -->
-    <transition name="slide-up">
-      <div
-        v-if="error && !isConnectionError"
-        class="fixed bottom-20 left-4 right-4 z-50 mx-auto max-w-md rounded-xl border border-rose-500/30 bg-rose-950/90 px-4 py-3 text-sm text-rose-200 shadow-lg backdrop-blur"
-      >
-        {{ error }}
-      </div>
-    </transition>
   </div>
 </template>
 
@@ -236,14 +226,3 @@ onMounted(() => {
 });
 </script>
 
-<style scoped>
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: all 0.3s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-  opacity: 0;
-  transform: translateY(16px);
-}
-</style>

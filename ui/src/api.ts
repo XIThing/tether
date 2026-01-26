@@ -132,8 +132,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function listSessions(): Promise<Session[]> {
-  const data = await fetchJson<{ sessions: Session[] }>("/api/sessions");
-  return data.sessions;
+  return await fetchJson<Session[]>("/api/sessions");
 }
 
 export type CreateSessionOptions = {
@@ -149,31 +148,27 @@ export async function createSession(options: CreateSessionOptions = {}): Promise
   if (options.directory) {
     payload.directory = options.directory;
   }
-  const data = await fetchJson<{ session: Session }>("/api/sessions", {
+  return await fetchJson<Session>("/api/sessions", {
     method: "POST",
     body: JSON.stringify(payload)
   });
-  return data.session;
 }
 
 export async function getSession(id: string): Promise<Session> {
-  const data = await fetchJson<{ session: Session }>(`/api/sessions/${id}`);
-  return data.session;
+  return await fetchJson<Session>(`/api/sessions/${id}`);
 }
 
 export async function startSession(id: string, prompt: string): Promise<Session> {
-  const data = await fetchJson<{ session: Session }>(`/api/sessions/${id}/start`, {
+  return await fetchJson<Session>(`/api/sessions/${id}/start`, {
     method: "POST",
     body: JSON.stringify({ prompt })
   });
-  return data.session;
 }
 
 export async function interruptSession(id: string): Promise<Session> {
-  const data = await fetchJson<{ session: Session }>(`/api/sessions/${id}/interrupt`, {
+  return await fetchJson<Session>(`/api/sessions/${id}/interrupt`, {
     method: "POST"
   });
-  return data.session;
 }
 
 export function interruptSessionKeepalive(id: string): void {
@@ -194,11 +189,10 @@ export function interruptSessionKeepalive(id: string): void {
 }
 
 export async function sendInput(id: string, text: string): Promise<Session> {
-  const data = await fetchJson<{ session: Session }>(`/api/sessions/${id}/input`, {
+  return await fetchJson<Session>(`/api/sessions/${id}/input`, {
     method: "POST",
     body: JSON.stringify({ text })
   });
-  return data.session;
 }
 
 export async function getDiff(id: string): Promise<DiffResponse> {
@@ -231,11 +225,10 @@ export async function clearAllData(): Promise<void> {
 }
 
 export async function renameSession(id: string, name: string): Promise<Session> {
-  const data = await fetchJson<{ session: Session }>(`/api/sessions/${id}/rename`, {
+  return await fetchJson<Session>(`/api/sessions/${id}/rename`, {
     method: "PATCH",
     body: JSON.stringify({ name }),
   });
-  return data.session;
 }
 
 export type ListExternalSessionsOptions = {
@@ -258,10 +251,9 @@ export async function listExternalSessions(
     params.set("limit", String(options.limit));
   }
   const query = params.toString();
-  const data = await fetchJson<{ sessions: ExternalSessionSummary[] }>(
+  return await fetchJson<ExternalSessionSummary[]>(
     `/api/external-sessions${query ? `?${query}` : ""}`
   );
-  return data.sessions;
 }
 
 export async function getExternalSessionHistory(
@@ -273,10 +265,9 @@ export async function getExternalSessionHistory(
   if (limit) {
     params.set("limit", String(limit));
   }
-  const data = await fetchJson<{ session: ExternalSessionDetail }>(
+  return await fetchJson<ExternalSessionDetail>(
     `/api/external-sessions/${id}/history?${params.toString()}`
   );
-  return data.session;
 }
 
 export async function attachToExternalSession(
@@ -284,7 +275,7 @@ export async function attachToExternalSession(
   runnerType: ExternalRunnerType,
   directory: string
 ): Promise<Session> {
-  const data = await fetchJson<{ session: Session }>("/api/sessions/attach", {
+  return await fetchJson<Session>("/api/sessions/attach", {
     method: "POST",
     body: JSON.stringify({
       external_id: externalId,
@@ -292,7 +283,6 @@ export async function attachToExternalSession(
       directory,
     }),
   });
-  return data.session;
 }
 
 export type SyncResult = {

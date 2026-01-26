@@ -78,8 +78,8 @@
       <div class="flex-1 overflow-y-auto px-2 py-2">
         <div v-for="group in filteredGroups" :key="group.key" class="mb-2">
           <!-- Directory header (clickable to toggle) -->
-          <button
-            class="mb-0.5 flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition hover:bg-stone-800/50"
+          <div
+            class="mb-0.5 flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-1.5 text-left transition hover:bg-stone-800/50"
             @click="toggle(group.key)"
           >
             <div class="flex min-w-0 flex-1 items-center gap-2">
@@ -101,14 +101,14 @@
             >
               <Plus class="h-3.5 w-3.5" />
             </button>
-          </button>
+          </div>
 
           <!-- Sessions in this directory (collapsible) -->
           <div v-if="isExpanded(group.key)" class="space-y-0.5 pl-5">
-            <button
+            <div
               v-for="session in group.sessions"
               :key="session.id"
-              class="group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition"
+              class="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition"
               :class="session.id === activeSessionId
                 ? 'bg-stone-800 text-stone-100'
                 : 'text-stone-300 hover:bg-stone-800/50'"
@@ -147,7 +147,7 @@
               >
                 <X class="h-3.5 w-3.5" />
               </button>
-            </button>
+            </div>
           </div>
         </div>
 

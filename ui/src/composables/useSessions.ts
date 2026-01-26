@@ -63,7 +63,8 @@ export function useSessions() {
       maybeSelectDefaultSession(fetched);
       return fetched;
     } catch (err) {
-      error.value = String(err);
+      console.error("Failed to refresh sessions:", err);
+      error.value = String(err); // Keep for isConnectionError detection
       return [];
     } finally {
       loading.value = false;
@@ -80,7 +81,7 @@ export function useSessions() {
       await refresh();
       return created;
     } catch (err) {
-      error.value = String(err);
+      console.error("Failed to create session:", err);
       return null;
     } finally {
       creating.value = false;
@@ -102,7 +103,7 @@ export function useSessions() {
       }
       await refresh();
     } catch (err) {
-      error.value = String(err);
+      console.error("Failed to delete session:", err);
     } finally {
       deleting.value = false;
     }
@@ -126,7 +127,7 @@ export function useSessions() {
       const msg = String(err);
       // 400 = not attached, 404 = external not found - both are expected
       if (!msg.includes("400") && !msg.includes("404")) {
-        error.value = msg;
+        console.error("Failed to sync session:", err);
       }
       return null;
     } finally {

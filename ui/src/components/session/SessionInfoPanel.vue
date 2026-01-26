@@ -89,6 +89,12 @@ const runnerTypeStyles = () => {
             {{ header.session_id || session?.id || "unknown" }}
           </p>
         </div>
+        <div v-if="session?.runner_session_id" class="rounded-xl border border-stone-700/80 bg-stone-900/40 px-3 py-2">
+          <p class="text-xxs uppercase tracking-[0.2em] text-stone-400">Runner Session</p>
+          <p class="mt-1 break-all font-mono text-xs font-semibold text-stone-50">
+            {{ session.runner_session_id }}
+          </p>
+        </div>
       </div>
       <p v-else class="text-sm text-stone-500">No header yet.</p>
     </CardContent>

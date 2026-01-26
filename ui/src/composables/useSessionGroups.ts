@@ -45,7 +45,24 @@ export function useSessionGroups(
       }
     });
 
-    return Array.from(map.values());
+    // Sort sessions within each group by last_activity_at descending
+    const result = Array.from(map.values());
+    for (const group of result) {
+      group.sessions.sort((a, b) => {
+        const aTime = a.last_activity_at || a.created_at || "";
+        const bTime = b.last_activity_at || b.created_at || "";
+        return bTime.localeCompare(aTime);
+      });
+    }
+
+    // Sort groups by their most recent session's activity descending
+    result.sort((a, b) => {
+      const aLatest = a.sessions[0]?.last_activity_at || a.sessions[0]?.created_at || "";
+      const bLatest = b.sessions[0]?.last_activity_at || b.sessions[0]?.created_at || "";
+      return bLatest.localeCompare(aLatest);
+    });
+
+    return result;
   });
 
   const filteredGroups = computed<DirectoryGroup[]>(() => {
