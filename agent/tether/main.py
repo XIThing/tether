@@ -9,12 +9,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 
 from tether.api import api_router, root_router
-from tether.http import (
+from tether.middleware import (
     http_exception_handler,
     request_logging_middleware,
     validation_exception_handler,
 )
-from tether.logging import configure_logging
+from tether.log_config import configure_logging
 from tether.maintenance import maintenance_loop
 from tether.settings import settings
 from tether.startup import log_ui_urls

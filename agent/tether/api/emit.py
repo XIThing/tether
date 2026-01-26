@@ -65,7 +65,7 @@ async def emit_state(session: Session) -> None:
             "ts": now(),
             "seq": store.next_seq(session.id),
             "type": "session_state",
-            "data": {"state": session.state},
+            "data": {"state": session.state.value},
         },
     )
 

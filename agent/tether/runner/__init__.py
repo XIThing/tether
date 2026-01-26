@@ -88,7 +88,13 @@ def get_runner(events: RunnerEvents) -> Runner:
         return runner
 
     if name == "claude_local":
-        from tether.runner.claude_local import ClaudeLocalRunner
+        try:
+            from tether.runner.claude_local import ClaudeLocalRunner
+        except ImportError as e:
+            raise ValueError(
+                "claude_local adapter requires claude_agent_sdk. "
+                "Install it with: pip install claude-agent-sdk"
+            ) from e
 
         runner = ClaudeLocalRunner(events)
         _active_runner_type = runner.runner_type
@@ -97,11 +103,14 @@ def get_runner(events: RunnerEvents) -> Runner:
     if name == "claude_auto":
         # Auto-detect: prefer OAuth (no cost to user), fallback to API key
         if _has_claude_oauth():
-            from tether.runner.claude_local import ClaudeLocalRunner
-
-            runner = ClaudeLocalRunner(events)
-            _active_runner_type = runner.runner_type
-            return runner
+            try:
+                from tether.runner.claude_local import ClaudeLocalRunner
+            except ImportError:
+                pass  # Fall through to API key check
+            else:
+                runner = ClaudeLocalRunner(events)
+                _active_runner_type = runner.runner_type
+                return runner
         if _has_anthropic_api_key():
             from tether.runner.claude import ClaudeRunner
 

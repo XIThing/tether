@@ -1,5 +1,6 @@
 # <img src="tether_compact_logo.png" height="32"> Tether
 
+[![CI](https://github.com/XIThing/tether/actions/workflows/ci.yml/badge.svg)](https://github.com/XIThing/tether/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/Status-Early_Development-orange.svg)]()
 
@@ -16,13 +17,20 @@ You start a coding agent, walk away for lunch, and come back to find it stuck wa
 - **Web UI** — Monitor sessions from your phone or desktop (mobile app on the way)
 - **No API keys required** — Uses Claude / Codex local OAuth by default
 
-## Quick Start (works for Claude, look further on for Codex)
+## Quick Start
+
+**AI agent:**
+
+Paste this into Claude Code, Codex, or your preferred AI coding assistant:
+
+> Clone and set up Tether from github.com/XIThing/tether following AGENTS.md
+
+**Manual setup:**
 
 ```bash
-# Install dependencies (once)
+git clone https://github.com/XIThing/tether.git
+cd tether
 make install
-
-# Start agent
 make start
 open http://localhost:8787
 ```

@@ -78,7 +78,7 @@ class Session(SQLModel, table=True):
     repo_display: str
     repo_ref_type: str
     repo_ref_value: str
-    state: str
+    state: SessionState
     name: Optional[str] = None
     created_at: str
     started_at: Optional[str] = None

@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from unittest.mock import MagicMock
 
-from tether.http import (
+from tether.middleware import (
     http_exception_handler,
     validation_exception_handler,
     raise_http_error,

@@ -89,7 +89,7 @@ class SessionStore:
             repo_display=repo_id,
             repo_ref_type="path",
             repo_ref_value=repo_id,
-            state=SessionState.CREATED.value,
+            state=SessionState.CREATED,
             name="New session",
             created_at=now,
             started_at=None,
@@ -232,7 +232,7 @@ class SessionStore:
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         removed = 0
         for session in list(self._sessions.values()):
-            if session.state in (SessionState.RUNNING.value, SessionState.INTERRUPTING.value):
+            if session.state in (SessionState.RUNNING, SessionState.INTERRUPTING):
                 continue
             ts = session.ended_at or session.last_activity_at or session.created_at
             if not ts:

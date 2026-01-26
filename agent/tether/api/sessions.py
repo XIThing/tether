@@ -299,7 +299,7 @@ async def get_diff(session_id: str, _: None = Depends(require_token)) -> dict:
 def _serialize_session(session) -> dict:
     return {
         "id": session.id,
-        "state": session.state.value if hasattr(session.state, "value") else session.state,
+        "state": session.state.value,
         "name": session.name,
         "created_at": session.created_at,
         "started_at": session.started_at,
