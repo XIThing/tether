@@ -69,7 +69,7 @@ Set `TETHER_AGENT_ADAPTER` in `.env`:
 | Adapter | Description |
 |---------|-------------|
 | `claude_local` | Claude via local OAuth (default, no API key) |
-| `claude` | Claude via API key (set `ANTHROPIC_API_KEY`) |
+| `claude_api` | Claude via API key (set `ANTHROPIC_API_KEY`) |
 | `claude_auto` | Auto-detect (prefer OAuth, fallback to API key) |
 | `codex_sdk_sidecar` | Codex via sidecar (use `make start-codex`) |
 | `codex_cli` | Legacy Codex CLI runner |

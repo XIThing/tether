@@ -18,9 +18,27 @@ cd tether
 # Install dependencies
 make install
 
-# Start the agent
-make start
+# Copy the example config
+cp .env.example .env
 ```
+
+### Configure .env
+
+1. **Ask the user** which AI model they want to use: **Claude** (default) or **Codex**
+
+2. Generate a secure token and update `.env`:
+   - Set `TETHER_AGENT_TOKEN` to a random value (e.g., `openssl rand -hex 16`)
+   - If user chose Codex, set `TETHER_AGENT_ADAPTER=codex_sdk_sidecar`
+   - **Show the user the token** - they need it to log in to the web UI
+
+3. Start the agent:
+   ```bash
+   # For Claude (default)
+   make start
+
+   # For Codex
+   make start-codex
+   ```
 
 ## Verify
 
@@ -70,7 +88,7 @@ make docker-start
 services:
   agent:
     volumes:
-      - /path/to/repos:/path/to/repos
+      - /home/username:/home/username
 ```
 
 The native setup (`make start`) is recommended as it has direct file system access.
