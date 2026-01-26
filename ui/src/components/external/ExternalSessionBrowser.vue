@@ -186,18 +186,18 @@
 
                     <!-- Attach button -->
                     <div class="border-t border-stone-800/50 px-3 py-3">
-                      <button
-                        v-if="session.runner_type === 'claude_code'"
-                        class="w-full rounded-lg py-2 text-sm font-medium transition"
-                        :class="session.is_running
-                          ? 'cursor-not-allowed bg-stone-700 text-stone-500'
-                          : 'bg-emerald-600 text-white hover:bg-emerald-500'"
-                        :disabled="attaching || session.is_running"
-                        :title="session.is_running ? 'Cannot attach to busy session' : 'Attach to this session'"
-                        @click="attachToSession(session)"
-                      >
-                        {{ attaching ? 'Attaching...' : session.is_running ? 'Session is busy' : 'Attach' }}
-                      </button>
+                      <div v-if="session.runner_type === 'claude_code'">
+                        <p v-if="session.is_running" class="mb-2 text-center text-xs text-amber-400">
+                          Session is currently busy
+                        </p>
+                        <button
+                          class="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+                          :disabled="attaching"
+                          @click="attachToSession(session)"
+                        >
+                          {{ attaching ? 'Attaching...' : 'Attach' }}
+                        </button>
+                      </div>
                       <div
                         v-else
                         class="rounded-lg bg-stone-800/50 px-3 py-2 text-center text-xs text-stone-500"
@@ -237,6 +237,7 @@ import {
   type ExternalSessionDetail,
   type ExternalRunnerType,
 } from "@/api";
+import { formatTime } from "@/composables/formatters";
 
 const props = defineProps<{
   open: boolean;
@@ -378,7 +379,7 @@ async function toggleSession(session: ExternalSessionSummary) {
 }
 
 async function attachToSession(session: ExternalSessionSummary) {
-  if (session.runner_type !== "claude_code" || session.is_running) {
+  if (session.runner_type !== "claude_code") {
     return;
   }
 
@@ -399,28 +400,6 @@ async function attachToSession(session: ExternalSessionSummary) {
   }
 }
 
-function formatDirectory(path: string): string {
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length <= 2) {
-    return path;
-  }
-  return `.../${segments.slice(-2).join("/")}`;
-}
-
-function formatTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
 
 // Watch for open to load sessions
 watch(
