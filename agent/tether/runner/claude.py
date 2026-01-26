@@ -29,6 +29,7 @@ class ClaudeRunner:
         self._client = Anthropic()
         self._model = settings.claude_model()
         self._max_tokens = settings.claude_max_tokens()
+        self._tasks: dict[str, asyncio.Task] = {}
 
     async def start(self, session_id: str, prompt: str, approval_choice: int) -> None:
         """Start a Claude conversation session.
@@ -40,7 +41,7 @@ class ClaudeRunner:
         """
         # Clear any previous state
         store.clear_stop_requested(session_id)
-        store.clear_runner_task(session_id)
+        self._tasks.pop(session_id, None)
 
         # Emit header
         await self._events.on_header(
@@ -55,7 +56,7 @@ class ClaudeRunner:
 
         # Start conversation loop
         task = asyncio.create_task(self._conversation_loop(session_id))
-        store.set_runner_task(session_id, task)
+        self._tasks[session_id] = task
 
     async def send_input(self, session_id: str, text: str) -> None:
         """Send follow-up input to the conversation.
@@ -71,11 +72,11 @@ class ClaudeRunner:
         store.add_message(session_id, "user", [{"type": "text", "text": text}])
 
         # If no active task, start a new conversation loop
-        task = store.get_runner_task(session_id)
+        task = self._tasks.get(session_id)
         if task is None or task.done():
             store.clear_stop_requested(session_id)
             task = asyncio.create_task(self._conversation_loop(session_id))
-            store.set_runner_task(session_id, task)
+            self._tasks[session_id] = task
 
     async def stop(self, session_id: str) -> int | None:
         """Stop the Claude session.
@@ -88,7 +89,7 @@ class ClaudeRunner:
         """
         store.request_stop(session_id)
 
-        task = store.get_runner_task(session_id)
+        task = self._tasks.get(session_id)
         if task and not task.done():
             task.cancel()
             try:
@@ -96,7 +97,7 @@ class ClaudeRunner:
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
-        store.clear_runner_task(session_id)
+        self._tasks.pop(session_id, None)
         store.clear_stop_requested(session_id)
 
         return 0
