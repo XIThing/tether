@@ -54,25 +54,25 @@ test:
 # =============================================================================
 
 docker-start:
-	docker compose -f docker-compose.docker.yml up -d agent
+	docker compose up -d agent
 
 docker-start-codex:
-	docker compose -f docker-compose.docker.yml --profile codex up -d
+	docker compose --profile codex up -d
 
 docker-start-telegram:
-	docker compose -f docker-compose.docker.yml --profile telegram up -d
+	docker compose --profile telegram up -d
 
 docker-stop:
-	docker compose -f docker-compose.docker.yml --profile codex --profile telegram down
+	docker compose --profile codex --profile telegram down
 
 docker-logs:
-	docker compose -f docker-compose.docker.yml logs -f
+	docker compose logs -f
 
 docker-status:
-	docker compose -f docker-compose.docker.yml ps -a
+	docker compose ps -a
 
 docker-build:
-	docker compose -f docker-compose.docker.yml build
+	docker compose build
 
 docker-clean:
-	docker compose -f docker-compose.docker.yml --profile codex --profile telegram down -v
+	docker compose --profile codex --profile telegram down -v

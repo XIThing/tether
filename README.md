@@ -1,17 +1,22 @@
-# Tether
+# <img src="tether_compact_logo.png" height="32"> Tether
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Early_Development-orange.svg)]()
 
 Control your AI agents from your phone when you're away from your desk.
 
-You start a coding agent, walk away for lunch, and come back to find it stuck waiting for input for an hour. Tether fixes that—get notified when your agent needs you, respond from anywhere.
+![Tether Demo](docs/demo.webp)
+
+You start a coding agent, walk away for lunch, and come back to find it stuck waiting for input for an hour. Tether fixes that. Get notified when your agent needs you, respond from anywhere.
 
 ## Features
 
 - **Local-first** — Runs on your machine, your data stays yours
-- **Multi-agent** — Supports Claude and Codex
-- **Web UI** — Monitor sessions from your phone or desktop
-- **No API key required** — Uses Claude local OAuth by default
+- **Multi-agent** — Supports Claude and Codex, more to come (let me know which ones!)
+- **Web UI** — Monitor sessions from your phone or desktop (mobile app on the way)
+- **No API keys required** — Uses Claude / Codex local OAuth by default
 
-## Quick Start
+## Quick Start (works for Claude, look further on for Codex)
 
 ```bash
 # Install dependencies (once)
@@ -96,13 +101,67 @@ make docker-logs         # View logs
 make docker-build        # Rebuild images
 ```
 
-## Development
+## FAQ
+
+**What does Tether add on top of Claude Code or Codex?**
+
+Claude Code and Codex require you to be at your PC. Tether provides a mobile UI and API to see progress and give instructions, even when you're away from your desk.
+
+**Is my code sent to the cloud?**
+
+Tether runs entirely on your machine. Your code stays local and is never sent to Tether servers. The only external communication is between you and your chosen AI provider (Anthropic or OpenAI).
+
+**Do I need an API key to use Tether?**
+
+Not necessarily. Tether integrates with the Claude and Codex SDKs, which both support local authentication. By default, Tether uses Claude's local OAuth, so no API key is needed. You can optionally use API keys if you prefer.
+
+**Why not just SSH into my machine?**
+
+SSH is finnicky to set up for mobile access and awkward to use on a phone. When you're away from your desk, you don't need a full terminal. You need to quickly see what's happening and respond. Tether gives you just that: a clean mobile UI built for checking in and giving instructions.
+
+**Can I access Tether from outside my home network?**
+
+Currently, Tether works on your local network. For remote access today, you can use a VPN like Tailscale or WireGuard. We're building a hosted relay service that will let you securely access your agent from anywhere without VPN setup. See [gettether.dev](https://gettether.dev) for updates.
+
+## Current Status
+
+**What works:**
+- Attach to existing Claude and Codex sessions from the web UI (and start new sessions)
+- Monitor live output from your phone or desktop
+- Send input and instructions to the agent
+- Integrated Git diff viewer in the web UI
+- Shortcuts in the web UI for common actions to reduce typing effort
+
+**Work in progress:**
+- Local network only (no relay yet)
+- Claude runner is more stable than Codex
+- No approvals handling yet (agents run with auto-approve)
+- Web UI only (no native mobile app)
+
+## Roadmap
+
+**Next up:**
+- Approvals integration
+- WebSockets (replacing SSE)
+- Quick actions management in the Web UI
+- Codex runner improvements - Try to phase out sidecar approach
+
+**Later:**
+- More agent integrations
+- Hosted relay service (access from anywhere without VPN)
+- Native mobile app
+
+See [gettether.dev](https://gettether.dev) for updates.
+
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
-## Status
+Questions or ideas? Start a conversation in [GitHub Discussions](https://github.com/XIThing/tether/discussions).
 
-Early development. Feedback welcome.
+## License
+
+Apache 2.0. See [LICENSE](LICENSE) for details.
 
 ---
 
