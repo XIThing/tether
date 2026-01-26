@@ -173,4 +173,4 @@ Apache 2.0. See [LICENSE](LICENSE) for details.
 
 ---
 
-[Website](https://gettether.dev) · Built by XIThing
+[Website](https://gettether.dev) · Built by [XIThing](https://xithing.io)
