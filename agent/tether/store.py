@@ -18,7 +18,7 @@ import structlog
 from sqlalchemy import func as sa_func
 from sqlmodel import select
 
-from tether.db import get_session as get_db_session
+from tether.db import get_session as get_db_session, init_db
 from tether.git import has_git_repository, normalize_directory_path
 from tether.models import Message, RepoRef, Session, SessionState
 from tether.settings import settings
@@ -58,6 +58,7 @@ class SessionStore:
         return self._runtime[session_id]
 
     def _load_sessions(self) -> None:
+        init_db()  # Ensure tables exist before querying
         with self._db_lock:
             with get_db_session() as db:
                 rows = db.exec(select(Session)).all()
