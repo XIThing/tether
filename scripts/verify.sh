@@ -1,6 +1,6 @@
 #!/bin/bash
-# Smoke test for Tether
-# Verifies the agent is running and responding
+# Verify Tether setup
+# Checks that the agent is running and responding
 
 set -e
 
@@ -12,7 +12,7 @@ if [ -n "$TETHER_AGENT_TOKEN" ]; then
     AUTH_HEADER="Authorization: Bearer $TETHER_AGENT_TOKEN"
 fi
 
-echo "Testing Tether at $BASE_URL"
+echo "Verifying Tether at $BASE_URL"
 echo
 
 # Test health endpoint (no auth required)

@@ -1,4 +1,4 @@
-.PHONY: start start-codex stop build-ui install smoke-test \
+.PHONY: start start-codex stop build-ui install verify \
         docker-start docker-start-codex docker-stop docker-logs docker-status docker-build docker-clean \
         dev dev-ui dev-stop test
 
@@ -49,9 +49,9 @@ dev-stop:
 test:
 	cd agent && pytest
 
-# Run smoke test (agent must be running)
-smoke-test:
-	./scripts/smoke-test.sh
+# Verify setup (agent must be running)
+verify:
+	./scripts/verify.sh
 
 # =============================================================================
 # Docker mode (legacy - for users who prefer Docker with volume mounts)

@@ -24,10 +24,10 @@ make start
 
 ## Verify
 
-Run the smoke test (checks both agent API and UI):
+Run the verify script (checks both agent API and UI):
 
 ```bash
-make smoke-test
+make verify
 ```
 
 Or manually:
