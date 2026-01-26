@@ -1,18 +1,21 @@
 # Tether
 
-Local-first control interface for supervising AI coding sessions from your phone.
+Control your AI agents from your phone when you're away from your desk.
+
+You start a coding agent, walk away for lunch, and come back to find it stuck waiting for input for an hour. Tether fixes that—get notified when your agent needs you, respond from anywhere.
+
+## Features
+
+- **Local-first** — Runs on your machine, your data stays yours
+- **Multi-agent** — Supports Claude and Codex
+- **Web UI** — Monitor sessions from your phone or desktop
+- **No API key required** — Uses Claude local OAuth by default
 
 ## Quick Start
-
 ```bash
-# Start the agent
 make start
-
-# Open in browser
 open http://localhost:8787
 ```
-
-The agent uses Claude via local OAuth by default (no API key needed).
 
 ## Access from Phone
 
@@ -47,51 +50,34 @@ Set `TETHER_AGENT_ADAPTER` in `.env`:
 |---------|-------------|
 | `claude_local` | Claude via local OAuth (default, no API key) |
 | `claude` | Claude via API key (set `ANTHROPIC_API_KEY`) |
+| `claude_auto` | Auto-detect (prefer OAuth, fallback to API key) |
 | `codex_sdk_sidecar` | Codex via sidecar (use `make start-codex`) |
+| `codex_cli` | Legacy Codex CLI runner |
 
 ### Authentication
 
 By default, no auth is required. To require a token:
-
 ```bash
 TETHER_AGENT_TOKEN=your-secret-token make start
 ```
 
 ## Commands
-
 ```bash
-make start          # Start agent
-make start-codex    # Start agent + Codex sidecar
-make start-telegram # Start agent + Telegram bridge
-make stop           # Stop all services
-make logs           # View logs
-make status         # Show container status
-make build          # Rebuild images
-make clean          # Remove containers and volumes
+make start        # Start agent with UI (localhost:8787)
+make start-codex  # Start agent with UI + Codex sidecar
+make stop         # Stop all services
+make logs         # View logs
+make status       # Show container status
 ```
 
 ## Development
 
-### Agent (Python)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
-```bash
-cd agent
-python -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-```
+## Status
 
-### UI (Vue)
+Early development. Feedback welcome.
 
-```bash
-cd ui
-npm install
-npm run dev
-```
+---
 
-### Run Tests
-
-```bash
-cd agent && pytest
-```
+[Website](https://gettether.dev) · Built by XIThing
