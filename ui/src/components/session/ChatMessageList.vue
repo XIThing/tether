@@ -17,20 +17,16 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLElement | null>(null)
 
+const getScrollContainer = () => document.querySelector('.app-main')
+
 const scrollToBottom = () => {
   nextTick(() => {
-    if (!containerRef.value) return
-    const messages = containerRef.value.querySelectorAll('[data-message]')
-    const lastMessage = messages[messages.length - 1] as HTMLElement
-    if (lastMessage) {
-      const rect = lastMessage.getBoundingClientRect()
-      const inputBarHeight = 180
-      const targetY = window.scrollY + rect.bottom - window.innerHeight + inputBarHeight
-      window.scrollTo({
-        top: Math.max(0, targetY),
-        behavior: "smooth"
-      })
-    }
+    const scrollContainer = getScrollContainer()
+    if (!scrollContainer) return
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior: "smooth"
+    })
   })
 }
 
