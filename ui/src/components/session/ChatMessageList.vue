@@ -17,27 +17,16 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLElement | null>(null)
 
+const getScrollContainer = () => document.querySelector('.app-main')
+
 const scrollToBottom = () => {
   nextTick(() => {
-    if (!containerRef.value) return
-    // Find the actual scroll container (.app-main) since body scroll is locked
-    const scrollContainer = document.querySelector('.app-main')
+    const scrollContainer = getScrollContainer()
     if (!scrollContainer) return
-
-    const messages = containerRef.value.querySelectorAll('[data-message]')
-    const lastMessage = messages[messages.length - 1] as HTMLElement
-    if (lastMessage) {
-      // Calculate position relative to scroll container using getBoundingClientRect
-      const containerRect = scrollContainer.getBoundingClientRect()
-      const messageRect = lastMessage.getBoundingClientRect()
-      const inputBarHeight = 180
-      // Calculate how much to scroll: current scroll + message bottom relative to container - visible area + input bar space
-      const scrollTop = scrollContainer.scrollTop + messageRect.bottom - containerRect.bottom + inputBarHeight
-      scrollContainer.scrollTo({
-        top: Math.max(0, scrollTop),
-        behavior: "smooth"
-      })
-    }
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior: "smooth"
+    })
   })
 }
 

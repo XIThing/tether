@@ -1,5 +1,5 @@
 <template>
-  <header class="sticky top-0 z-20 border-b border-stone-800/40 bg-stone-950/95 backdrop-blur">
+  <header class="shrink-0 z-20 border-b border-stone-800/40 bg-stone-950">
     <div class="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-4">
       <!-- Left: menu + title -->
       <div class="flex min-w-0 flex-1 items-center gap-3">

@@ -3,6 +3,17 @@
 @tailwind utilities;
 
 @layer base {
+  html, body, #app {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+    /* Disable iOS double-tap zoom globally */
+    touch-action: manipulation;
+  }
+
   :root {
     color-scheme: dark;
     --spacing-touch: 44px;
@@ -65,9 +76,15 @@
   }
 
   /* Markdown tables */
+  .message-markdown .markdown-table-wrapper,
+  .message-thinking-markdown .markdown-table-wrapper {
+    @apply my-2 overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .message-markdown .markdown-table,
   .message-thinking-markdown .markdown-table {
-    @apply my-2 w-full border-collapse text-left;
+    @apply w-full border-collapse text-left;
   }
 
   .message-markdown .markdown-table th,

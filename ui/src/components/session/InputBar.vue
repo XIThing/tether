@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, ref, onMounted, onUnmounted } from "vue"
 import { ArrowUp, ChevronUp, Square, FileCode } from "lucide-vue-next"
 import type { SessionState } from "@/api"
 import { Textarea } from "@/components/ui/textarea"
@@ -23,6 +23,41 @@ const emit = defineEmits<{
 
 const prompt = ref("")
 const presetsCollapsed = ref(true)
+const bottomOffset = ref(0)
+
+// Handle visual viewport changes for mobile keyboard
+const updateBottomOffset = () => {
+  if (!window.visualViewport) {
+    bottomOffset.value = 0
+    return
+  }
+  // Calculate offset when keyboard is open
+  const viewportHeight = window.visualViewport.height
+  const windowHeight = window.innerHeight
+  const offset = windowHeight - viewportHeight - window.visualViewport.offsetTop
+  bottomOffset.value = Math.max(0, offset)
+}
+
+const handleFocus = () => {
+  // Small delay to let the keyboard appear
+  setTimeout(updateBottomOffset, 100)
+}
+
+const handleBlur = () => {
+  bottomOffset.value = 0
+}
+
+onMounted(() => {
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", updateBottomOffset)
+  }
+})
+
+onUnmounted(() => {
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener("resize", updateBottomOffset)
+  }
+})
 
 const basePresets = [
   { label: "Approve", text: "I approve this change." },
@@ -79,39 +114,40 @@ const toggleDiff = () => {
 </script>
 
 <template>
-  <div class="fixed bottom-0 left-0 right-0 z-40 border-t border-stone-800/50 bg-stone-950/95 backdrop-blur">
-    <!-- Quick replies (visible by default when session active) -->
-    <transition name="slide">
-      <div
-        v-if="!presetsCollapsed && canShowPresets && viewMode === 'chat'"
-        class="border-b border-stone-800/50 px-4 py-3"
-      >
-        <div class="mx-auto grid max-w-sm grid-cols-2 gap-2">
+  <Teleport to="#input-bar-slot">
+    <div class="input-bar-container" :style="{ paddingBottom: `calc(env(safe-area-inset-bottom) + ${bottomOffset}px)` }">
+      <!-- Quick replies (visible by default when session active) -->
+      <transition name="slide">
+        <div
+          v-if="!presetsCollapsed && canShowPresets && viewMode === 'chat'"
+          class="border-b border-stone-800/50 px-4 py-3"
+        >
+          <div class="mx-auto grid max-w-sm grid-cols-2 gap-2">
+            <button
+              v-for="preset in presets"
+              :key="preset.label"
+              class="flex h-11 items-center justify-center rounded-xl border border-stone-700 bg-stone-800/60 text-sm font-medium text-stone-200 transition active:scale-95 hover:bg-stone-700"
+              :disabled="sending"
+              @click="sendPreset(preset.text)"
+            >
+              {{ preset.label }}
+            </button>
+          </div>
           <button
-            v-for="preset in presets"
-            :key="preset.label"
-            class="flex h-11 items-center justify-center rounded-xl border border-stone-700 bg-stone-800/60 text-sm font-medium text-stone-200 transition active:scale-95 hover:bg-stone-700"
-            :disabled="sending"
-            @click="sendPreset(preset.text)"
+            class="mx-auto mt-2 block text-xs text-stone-500 transition hover:text-stone-300"
+            @click="presetsCollapsed = true"
           >
-            {{ preset.label }}
+            Hide shortcuts
           </button>
         </div>
-        <button
-          class="mx-auto mt-2 block text-xs text-stone-500 transition hover:text-stone-300"
-          @click="presetsCollapsed = true"
-        >
-          Hide shortcuts
-        </button>
-      </div>
-    </transition>
+      </transition>
 
-    <div class="mx-auto max-w-3xl px-4 py-3">
+      <div class="mx-auto max-w-3xl px-4 py-3">
       <div v-if="viewMode === 'chat'" class="flex items-end gap-2">
         <!-- Presets toggle (only shows when collapsed) -->
         <button
           v-if="canShowPresets && presetsCollapsed"
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
+          class="mb-[2px] flex size-11 shrink-0 items-center justify-center rounded-full bg-stone-800/60 text-stone-400 transition hover:bg-stone-700 hover:text-stone-200 active:scale-95"
           @click="presetsCollapsed = false"
           title="Show shortcuts"
         >
@@ -123,15 +159,17 @@ const toggleDiff = () => {
           <Textarea
             v-model="prompt"
             rows="1"
-            class="max-h-32 min-h-[44px] w-full resize-none rounded-2xl border-stone-700 bg-stone-900 py-3 pl-4 pr-12 text-sm text-stone-100 placeholder-stone-500 focus:border-stone-600 focus:ring-0"
+            class="max-h-20 min-h-[44px] w-full resize-none rounded-2xl border-stone-700 bg-stone-900 py-3 pl-4 pr-12 text-sm text-stone-100 placeholder-stone-500 focus:border-stone-600 focus:ring-0 overscroll-contain"
             placeholder="Message"
             @keydown.enter.exact.prevent="handleSend"
             @keydown.enter.shift.exact.stop
+            @focus="handleFocus"
+            @blur="handleBlur"
           />
           <!-- Send/Stop button -->
           <button
             v-if="isSessionRunning && !sending"
-            class="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-stone-600 text-white transition hover:bg-stone-500"
+            class="send-button absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-stone-600 text-white transition hover:bg-stone-500 active:scale-95"
             @click="handleStop"
             title="Stop"
           >
@@ -139,7 +177,7 @@ const toggleDiff = () => {
           </button>
           <button
             v-else
-            class="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full transition"
+            class="send-button absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full transition active:scale-95"
             :class="hasPrompt && canSend
               ? 'bg-emerald-600 text-white hover:bg-emerald-500'
               : 'bg-stone-700 text-stone-400'"
@@ -154,7 +192,7 @@ const toggleDiff = () => {
         <!-- Diff toggle -->
         <button
           v-if="hasGit || hasDiff"
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
+          class="mb-[2px] flex size-11 shrink-0 items-center justify-center rounded-full bg-stone-800/60 text-stone-400 transition hover:bg-stone-700 hover:text-stone-200 active:scale-95"
           @click="toggleDiff"
           title="View diff"
         >
@@ -166,17 +204,39 @@ const toggleDiff = () => {
       <div v-else class="flex items-center justify-between">
         <span class="text-sm text-stone-400">Viewing changes</span>
         <button
-          class="rounded-full bg-stone-800 px-4 py-2 text-sm text-stone-200 transition hover:bg-stone-700"
+          class="rounded-full bg-stone-800 px-4 py-2 text-sm text-stone-200 transition hover:bg-stone-700 active:scale-95 active:bg-stone-600"
           @click="toggleDiff"
         >
           Back to chat
         </button>
       </div>
     </div>
-  </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
+.input-bar-container {
+  flex-shrink: 0;
+  border-top: 1px solid rgb(41 37 36 / 0.5);
+  background-color: rgb(12 10 9);
+}
+
+/* Eliminate 300ms tap delay on mobile for all buttons */
+.input-bar-container button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Specific styling for send button touch target */
+.send-button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
+}
+
 .slide-enter-active,
 .slide-leave-active {
   transition: all 0.2s ease;
