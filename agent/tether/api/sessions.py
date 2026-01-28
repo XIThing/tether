@@ -18,6 +18,7 @@ from tether.api.schemas import (
     DiffResponse,
     InputRequest,
     OkResponse,
+    PermissionResponseRequest,
     RenameSessionRequest,
     SessionResponse,
     StartSessionRequest,
@@ -293,3 +294,46 @@ async def get_diff(session_id: str, _: None = Depends(require_token)) -> DiffRes
             return DiffResponse(diff=diff_text, files=files)
         logger.info("Diff unavailable", path=target, reason="no repository")
         return DiffResponse(diff="", files=[])
+
+
+@router.post("/sessions/{session_id}/permission", response_model=OkResponse)
+async def respond_permission(
+    session_id: str,
+    payload: PermissionResponseRequest,
+    _: None = Depends(require_token),
+) -> OkResponse:
+    """Respond to a permission request from the agent."""
+    with _session_logging_context(session_id):
+        session = store.get_session(session_id)
+        if not session:
+            raise_http_error("NOT_FOUND", "Session not found", 404)
+
+        # Build the result dict based on allow/deny
+        if payload.allow:
+            result = {
+                "behavior": "allow",
+                "updated_input": payload.updated_input,
+            }
+        else:
+            result = {
+                "behavior": "deny",
+                "message": payload.message or "User denied permission",
+            }
+
+        # Resolve the pending permission request
+        resolved = store.resolve_pending_permission(
+            session_id, payload.request_id, result
+        )
+        if not resolved:
+            raise_http_error(
+                "NOT_FOUND",
+                f"Permission request {payload.request_id} not found or already resolved",
+                404,
+            )
+
+        logger.info(
+            "Permission response received",
+            request_id=payload.request_id,
+            allow=payload.allow,
+        )
+        return OkResponse()

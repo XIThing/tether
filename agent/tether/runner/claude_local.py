@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from pathlib import Path
 
 import structlog
@@ -18,6 +19,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     ToolResultBlock,
     ThinkingBlock,
+    HookMatcher,
 )
 
 from tether.prompts import SYSTEM_PROMPT
@@ -27,6 +29,7 @@ from tether.store import store
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL = 5.0
+PERMISSION_TIMEOUT = 300.0  # 5 minutes timeout for permission requests
 
 
 class ClaudeLocalRunner:
@@ -54,18 +57,23 @@ class ClaudeLocalRunner:
         Args:
             session_id: Internal session identifier.
             prompt: Initial prompt to send.
-            approval_choice: Approval policy (mapped to permission_mode).
+            approval_choice: Approval policy (0=interactive, 1=acceptEdits, 2=bypassPermissions).
         """
-        logger.info("Starting claude_local session", session_id=session_id, approval_choice=approval_choice)
+        # Map approval_choice to permission_mode and store for follow-up inputs
+        permission_mode = self._map_permission_mode(approval_choice)
+        self._permission_modes[session_id] = permission_mode
+
+        logger.info(
+            "Starting claude_local session",
+            session_id=session_id,
+            approval_choice=approval_choice,
+            permission_mode=permission_mode,
+        )
         store.clear_stop_requested(session_id)
 
         # Get session to determine working directory
         session = store.get_session(session_id)
         cwd = session.directory if session and session.directory else None
-
-        # Map approval_choice to permission_mode and store for follow-up inputs
-        permission_mode = self._map_permission_mode(approval_choice)
-        self._permission_modes[session_id] = permission_mode
 
         # Check for pre-attached external session ID (from attach flow)
         resume = store.get_runner_session_id(session_id)
@@ -149,6 +157,9 @@ class ClaudeLocalRunner:
         """
         store.request_stop(session_id)
 
+        # Cancel any pending permission requests
+        store.clear_pending_permissions(session_id)
+
         task = self._tasks.get(session_id)
         if task and not task.done():
             task.cancel()
@@ -171,6 +182,137 @@ class ClaudeLocalRunner:
             return "acceptEdits"
         else:
             return "default"
+
+    def _make_pre_tool_use_hook(self, session_id: str):
+        """Create a PreToolUse hook callback for permission handling.
+
+        Uses the hooks system instead of can_use_tool because hooks have
+        proper bidirectional communication support in the SDK.
+
+        Args:
+            session_id: Internal session identifier.
+
+        Returns:
+            An async hook callback function.
+        """
+
+        async def pre_tool_use_hook(hook_input, tool_use_id, context):
+            """Handle PreToolUse hook to request permission from user.
+
+            Args:
+                hook_input: Hook input with tool_name and tool_input.
+                tool_use_id: ID of the tool use.
+                context: Hook context.
+
+            Returns:
+                Hook output with permissionDecision.
+            """
+            tool_name = hook_input.get("tool_name", "unknown")
+            tool_input = hook_input.get("tool_input", {})
+
+            logger.info(
+                "PreToolUse hook invoked",
+                session_id=session_id,
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+            )
+
+            request_id = f"perm_{uuid.uuid4().hex[:12]}"
+
+            # Create a future to wait for the user's response
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future = loop.create_future()
+
+            # Store the pending permission request
+            store.add_pending_permission(
+                session_id, request_id, tool_name, tool_input, future
+            )
+
+            try:
+                # Emit the permission request event to the UI
+                await self._events.on_permission_request(
+                    session_id,
+                    request_id=request_id,
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    suggestions=None,
+                )
+
+                # Wait for the user's response with timeout
+                result = await asyncio.wait_for(future, timeout=PERMISSION_TIMEOUT)
+
+                logger.info(
+                    "Permission response received",
+                    session_id=session_id,
+                    request_id=request_id,
+                    behavior=result.get("behavior"),
+                )
+
+                # Return hook output with permission decision
+                if result.get("behavior") == "allow":
+                    return {
+                        "continue_": True,
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "allow",
+                        },
+                    }
+                else:
+                    return {
+                        "continue_": True,
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": result.get(
+                                "message", "User denied permission"
+                            ),
+                        },
+                    }
+
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Permission request timed out",
+                    session_id=session_id,
+                    request_id=request_id,
+                )
+                # Clean up the pending request
+                store.resolve_pending_permission(
+                    session_id, request_id, {"behavior": "deny", "message": "Timeout"}
+                )
+                # Notify UI to dismiss the dialog
+                await self._events.on_permission_resolved(
+                    session_id,
+                    request_id=request_id,
+                    resolved_by="timeout",
+                    allowed=False,
+                    message="Permission request timed out after 5 minutes",
+                )
+                return {
+                    "continue_": True,
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "Permission request timed out",
+                    },
+                }
+
+            except asyncio.CancelledError:
+                logger.info(
+                    "Permission request cancelled",
+                    session_id=session_id,
+                    request_id=request_id,
+                )
+                # Notify UI to dismiss the dialog
+                await self._events.on_permission_resolved(
+                    session_id,
+                    request_id=request_id,
+                    resolved_by="cancelled",
+                    allowed=False,
+                    message="Session was interrupted",
+                )
+                raise
+
+        return pre_tool_use_hook
 
     async def _run_query(
         self,
@@ -195,6 +337,18 @@ class ClaudeLocalRunner:
         )
 
         try:
+            # Create stderr handler to log CLI output for debugging
+            def stderr_handler(line: str) -> None:
+                logger.debug("CLI stderr", session_id=session_id, line=line)
+
+            # Set up PreToolUse hook for permission handling if not in bypass mode
+            # We use hooks instead of can_use_tool because hooks have proper
+            # bidirectional communication support in the SDK
+            hooks = None
+            if permission_mode != "bypassPermissions":
+                pre_tool_hook = self._make_pre_tool_use_hook(session_id)
+                hooks = {"PreToolUse": [HookMatcher(hooks=[pre_tool_hook])]}
+
             options = ClaudeAgentOptions(
                 cwd=Path(cwd) if cwd else None,
                 permission_mode=permission_mode,
@@ -205,6 +359,10 @@ class ClaudeLocalRunner:
                 setting_sources=[],
                 # Custom system prompt for application-wide instructions
                 system_prompt=SYSTEM_PROMPT,
+                # Enable stderr logging for debugging
+                stderr=stderr_handler,
+                # PreToolUse hooks for permission handling
+                hooks=hooks,
             )
 
             logger.info(
@@ -214,14 +372,33 @@ class ClaudeLocalRunner:
                 permission_mode=permission_mode,
                 resume=resume,
                 continue_conversation=options.continue_conversation,
+                has_hooks=hooks is not None,
+                options_permission_mode=options.permission_mode,
             )
-            async for message in query(prompt=prompt, options=options):
-                # Check for stop request
-                if store.is_stop_requested(session_id):
-                    break
 
-                logger.debug("Received message", session_id=session_id, message_type=type(message).__name__)
-                await self._handle_message(session_id, message)
+            # When using hooks, we need streaming input to keep stdin open for the
+            # control protocol. The generator yields the prompt and then waits on
+            # an event until the query completes, preventing stdin from closing.
+            query_done = asyncio.Event()
+
+            async def prompt_stream():
+                yield {"type": "user", "message": {"role": "user", "content": prompt}}
+                # Keep generator alive until query completes - this keeps stdin open
+                # for hook responses via the control protocol
+                if hooks:
+                    await query_done.wait()
+
+            try:
+                async for message in query(prompt=prompt_stream(), options=options):
+                    # Check for stop request
+                    if store.is_stop_requested(session_id):
+                        break
+
+                    logger.info("Received message", session_id=session_id, message_type=type(message).__name__)
+                    await self._handle_message(session_id, message)
+            finally:
+                # Signal the generator to finish so it can be garbage collected
+                query_done.set()
 
         except asyncio.CancelledError:
             logger.info("Claude query cancelled", session_id=session_id)

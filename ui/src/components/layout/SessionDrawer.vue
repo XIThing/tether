@@ -108,7 +108,7 @@
             <div
               v-for="session in group.sessions"
               :key="session.id"
-              class="group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition"
+              class="session-item group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition active:bg-stone-700"
               :class="session.id === activeSessionId
                 ? 'bg-stone-800 text-stone-100'
                 : 'text-stone-300 hover:bg-stone-800/50'"
@@ -136,6 +136,13 @@
                       :class="getStateDotClass(session.state)"
                     ></span>
                     {{ formatState(session.state) }}
+                  </span>
+                  <span
+                    v-if="session.has_pending_permission"
+                    class="flex items-center gap-1 text-amber-400"
+                    title="Waiting for permission"
+                  >
+                    <ShieldAlert class="h-3 w-3 animate-pulse" />
                   </span>
                 </div>
               </div>
@@ -178,7 +185,7 @@ import { ref } from "vue";
 import {
   Folder, GitBranch, Plus, Link, ChevronRight,
   Clock, MessageSquare, X, Settings as SettingsIcon,
-  ChevronsDownUp, ChevronsUpDown
+  ChevronsDownUp, ChevronsUpDown, ShieldAlert
 } from "lucide-vue-next";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -263,5 +270,15 @@ const getStateDotClass = (state: string) => ({
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* Eliminate tap delay on all clickable elements */
+button,
+[role="button"],
+.cursor-pointer,
+.session-item {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 </style>

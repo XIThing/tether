@@ -16,14 +16,30 @@ export type Session = {
   directory: string | null;
   directory_has_git: boolean;
   message_count: number;
+  has_pending_permission: boolean;
 };
 
 export type EventEnvelope = {
   session_id: string;
   ts: string;
   seq: number;
-  type: "session_state" | "output" | "error" | "metadata" | "header" | "heartbeat" | "user_input" | "input_required";
+  type: "session_state" | "output" | "error" | "metadata" | "header" | "heartbeat" | "user_input" | "input_required" | "permission_request" | "permission_resolved";
+  data?: unknown;
 }
+
+export type PermissionRequestData = {
+  request_id: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  suggestions?: unknown[];
+};
+
+export type PermissionResolvedData = {
+  request_id: string;
+  resolved_by: "timeout" | "cancelled" | "user";
+  allowed: boolean;
+  message?: string;
+};
 
 export type HeaderData = {
   title: string;
@@ -77,9 +93,15 @@ export type ExternalSessionDetail = ExternalSessionSummary & {
 
 const BASE_KEY = "tether_base_url";
 const TOKEN_KEY = "tether_token";
+const APPROVAL_MODE_KEY = "tether_approval_mode";
 const LEGACY_BASE_KEY_V1 = "codex_base_url";
 const LEGACY_TOKEN_KEY_V1 = "codex_token";
 export const AUTH_REQUIRED_EVENT = "tether:auth-required";
+
+export type ApprovalMode = 0 | 1 | 2;
+// 0 = Interactive (ask for permissions)
+// 1 = Auto-approve edits only
+// 2 = Full auto-approve (bypass all)
 
 export function getBaseUrl(): string {
   return localStorage.getItem(BASE_KEY) || localStorage.getItem(LEGACY_BASE_KEY_V1) || "";
@@ -95,6 +117,17 @@ export function getToken(): string {
 
 export function setToken(value: string): void {
   localStorage.setItem(TOKEN_KEY, value);
+}
+
+export function getApprovalMode(): ApprovalMode {
+  const stored = localStorage.getItem(APPROVAL_MODE_KEY);
+  if (stored === "0") return 0;
+  if (stored === "1") return 1;
+  return 2; // Default to full auto-approve
+}
+
+export function setApprovalMode(value: ApprovalMode): void {
+  localStorage.setItem(APPROVAL_MODE_KEY, String(value));
 }
 
 function buildUrl(path: string): string {
@@ -158,10 +191,11 @@ export async function getSession(id: string): Promise<Session> {
   return await fetchJson<Session>(`/api/sessions/${id}`);
 }
 
-export async function startSession(id: string, prompt: string): Promise<Session> {
+export async function startSession(id: string, prompt: string, approvalChoice?: ApprovalMode): Promise<Session> {
+  const approval_choice = approvalChoice ?? getApprovalMode();
   return await fetchJson<Session>(`/api/sessions/${id}/start`, {
     method: "POST",
-    body: JSON.stringify({ prompt })
+    body: JSON.stringify({ prompt, approval_choice })
   });
 }
 
@@ -295,6 +329,23 @@ export async function syncSession(id: string): Promise<SyncResult> {
     method: "POST",
   });
   return data;
+}
+
+export type PermissionResponse = {
+  request_id: string;
+  allow: boolean;
+  message?: string;
+  updated_input?: Record<string, unknown>;
+};
+
+export async function respondToPermission(
+  sessionId: string,
+  response: PermissionResponse
+): Promise<void> {
+  await fetchJson<{ ok: boolean }>(`/api/sessions/${sessionId}/permission`, {
+    method: "POST",
+    body: JSON.stringify(response),
+  });
 }
 
 export async function openEventStream(

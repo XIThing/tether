@@ -9,6 +9,8 @@ from tether.api.emit import (
     emit_input_required,
     emit_metadata,
     emit_output,
+    emit_permission_request,
+    emit_permission_resolved,
     emit_state,
 )
 from tether.api.state import now, transition
@@ -144,6 +146,46 @@ class ApiRunnerEvents:
         session.last_activity_at = now()
         store.update_session(session)
         await emit_heartbeat(session, elapsed_s, done)
+
+    async def on_permission_request(
+        self,
+        session_id: str,
+        request_id: str,
+        tool_name: str,
+        tool_input: dict,
+        suggestions: list | None = None,
+    ) -> None:
+        """Emit a permission request event to the UI."""
+        session = store.get_session(session_id)
+        if not session:
+            return
+        await emit_permission_request(
+            session,
+            request_id=request_id,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            suggestions=suggestions,
+        )
+
+    async def on_permission_resolved(
+        self,
+        session_id: str,
+        request_id: str,
+        resolved_by: str,
+        allowed: bool,
+        message: str | None = None,
+    ) -> None:
+        """Emit a permission resolved event to dismiss UI dialogs."""
+        session = store.get_session(session_id)
+        if not session:
+            return
+        await emit_permission_resolved(
+            session,
+            request_id=request_id,
+            resolved_by=resolved_by,
+            allowed=allowed,
+            message=message,
+        )
 
 
 # Lazy runner initialization to speed up startup

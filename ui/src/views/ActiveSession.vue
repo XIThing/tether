@@ -7,24 +7,52 @@
       @close="infoOpen = false"
     />
 
-    <ChatMessageList
-      v-if="viewMode === 'chat'"
-      :messages="messages"
-      :assistant-index="assistantIndex"
-      :is-running="isSessionRunning"
-      @copy-final="copyFinal"
-      @toggle-details="toggleDetails"
-    />
+    <!-- Directory missing error - blocks session -->
+    <div
+      v-if="directoryMissing && session?.directory"
+      class="flex flex-col items-center justify-center py-16 text-center"
+    >
+      <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-amber-900/30">
+        <AlertTriangle class="h-8 w-8 text-amber-400" />
+      </div>
+      <h2 class="text-lg font-medium text-stone-200">Directory Not Found</h2>
+      <p class="mt-2 max-w-sm text-sm text-stone-400">
+        The directory for this session no longer exists and cannot be opened.
+      </p>
+      <p class="mt-2 max-w-md truncate rounded bg-stone-800/50 px-3 py-1.5 font-mono text-xs text-stone-500">
+        {{ session.directory }}
+      </p>
+      <p class="mt-4 text-xs text-stone-500">
+        You can delete this session from the sidebar.
+      </p>
+    </div>
 
-    <DiffViewer
-      v-else
-      :files="diffFileList"
-      :diff="diff"
-      @copy-all="copyDiff"
-      @copy-file="copyFile"
-    />
+    <!-- Loading indicator - only show when loading existing session with content -->
+    <div v-if="!directoryMissing && ((loading && messages.length > 0) || loadingView)" class="flex items-center justify-center py-12">
+      <div class="h-6 w-6 animate-spin rounded-full border-2 border-stone-600 border-t-emerald-500" />
+    </div>
+
+    <template v-else-if="!directoryMissing && !initialLoad">
+      <ChatMessageList
+        v-if="viewMode === 'chat'"
+        :messages="messages"
+        :assistant-index="assistantIndex"
+        :is-running="isSessionRunning"
+        @copy-final="copyFinal"
+        @toggle-details="toggleDetails"
+      />
+
+      <DiffViewer
+        v-else
+        :files="diffFileList"
+        :diff="diff"
+        @copy-all="copyDiff"
+        @copy-file="copyFile"
+      />
+    </template>
 
     <InputBar
+      v-if="!directoryMissing"
       :session-state="session?.state ?? null"
       :sending="sending"
       :view-mode="viewMode"
@@ -66,12 +94,47 @@
         </div>
       </DialogContent>
     </Dialog>
+
+    <Dialog :open="!!permissionRequest" @update:open="() => {}">
+      <DialogContent class="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Permission Required</DialogTitle>
+        </DialogHeader>
+        <div v-if="permissionRequest" class="space-y-4">
+          <p class="text-sm text-zinc-300">
+            Claude wants to use the <span class="font-mono font-semibold text-amber-400">{{ permissionRequest.tool_name }}</span> tool.
+          </p>
+          <div class="rounded bg-zinc-800 p-3 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto">
+            <pre class="whitespace-pre-wrap break-all">{{ JSON.stringify(permissionRequest.tool_input, null, 2) }}</pre>
+          </div>
+          <div class="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              class="h-10"
+              @click="handlePermissionDeny"
+              :disabled="permissionResponding"
+            >
+              Deny
+            </Button>
+            <Button
+              variant="default"
+              class="h-10 bg-emerald-600 hover:bg-emerald-700"
+              @click="handlePermissionAllow"
+              :disabled="permissionResponding"
+            >
+              Allow
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import {
+  checkDirectory,
   getDirectoryDiff,
   getDiff,
   getSession,
@@ -81,9 +144,12 @@ import {
   startSession,
   interruptSessionKeepalive,
   interruptSession,
+  respondToPermission,
   type DiffFile,
   type DiffResponse,
   type EventEnvelope,
+  type PermissionRequestData,
+  type PermissionResolvedData,
   type Session
 } from "../api"
 import { activeSessionId, requestInfo, requestRename } from "../state"
@@ -95,6 +161,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog"
+import { AlertTriangle } from "lucide-vue-next"
 import SessionInfoPanel from "@/components/session/SessionInfoPanel.vue"
 import ChatMessageList from "@/components/session/ChatMessageList.vue"
 import DiffViewer from "@/components/session/DiffViewer.vue"
@@ -121,6 +188,9 @@ const diffFiles = ref<
   { id: string; path: string; hunks: number; html: string; patch: string }[]
 >([])
 const error = ref("")
+const loading = ref(false)
+const initialLoad = ref(!!activeSessionId.value)
+const loadingView = ref(false)
 const sending = ref(false)
 const lastSeq = ref(0)
 const viewMode = ref<"chat" | "diff">("chat")
@@ -129,6 +199,14 @@ const renameOpen = ref(false)
 const renameValue = ref("")
 const renaming = ref(false)
 const renameMessage = ref("")
+
+// Permission request state
+const permissionRequest = ref<PermissionRequestData | null>(null)
+const permissionSessionId = ref<string | null>(null)  // Track which session the permission is for
+const permissionResponding = ref(false)
+
+// Directory warning state
+const directoryMissing = ref(false)
 
 let closeStream: (() => void) | null = null
 const assistantIndex = ref(-1)
@@ -161,10 +239,13 @@ const reportError = (err: unknown, target: "error" | "rename" = "error") => {
   }
 }
 
-const buildDiffView = (diffText: string, files: DiffFile[]) => {
+const buildDiffView = async (diffText: string, files: DiffFile[]) => {
   const parsedFiles = Diff2Html.parse(diffText)
   const htmlByPath = new Map<string, string>()
-  parsedFiles.forEach((file) => {
+
+  // Process files in chunks to keep UI responsive
+  for (let i = 0; i < parsedFiles.length; i++) {
+    const file = parsedFiles[i]
     const path = (file.newName || file.oldName || "unknown").replace(/^b\//, "")
     const html = Diff2Html.html([file], {
       inputFormat: "json",
@@ -173,7 +254,10 @@ const buildDiffView = (diffText: string, files: DiffFile[]) => {
       outputFormat: "line-by-line"
     })
     htmlByPath.set(path, html)
-  })
+    // Yield to browser every few files
+    if (i % 3 === 2) await new Promise((r) => setTimeout(r, 0))
+  }
+
   return files.map((file, index) => ({
     id: `${index}-${file.path}`,
     path: file.path,
@@ -198,13 +282,27 @@ const resetView = () => {
   lastSeq.value = 0
   renameOpen.value = false
   renameMessage.value = ""
+  directoryMissing.value = false
 }
 
 const ensureSession = async (): Promise<boolean> => {
   error.value = ""
+  directoryMissing.value = false
   if (!activeSessionId.value) return false
   try {
     session.value = await getSession(activeSessionId.value)
+    // Check if the session's directory still exists
+    if (session.value.directory) {
+      try {
+        const check = await checkDirectory(session.value.directory)
+        if (!check.exists) {
+          directoryMissing.value = true
+          return false
+        }
+      } catch {
+        // If check fails, don't block - allow the session to open
+      }
+    }
     return true
   } catch (err) {
     // If session doesn't exist (404), clear the active session ID
@@ -248,7 +346,7 @@ const refreshDiff = async () => {
     const diffText = fetched.diff || ""
     const files = Array.isArray(fetched.files) ? fetched.files : parseRawDiff(diffText)
     diff.value = diffText
-    const rendered = buildDiffView(diffText, files)
+    const rendered = await buildDiffView(diffText, files)
     diffFiles.value = Array.isArray(rendered) ? rendered : []
   } catch (err) {
     reportError(err)
@@ -415,6 +513,31 @@ const onEvent = (event: EventEnvelope) => {
       session.value.state = String((event.data as { state?: string }).state || "")
     }
   }
+
+  if (event.type === "permission_request") {
+    const payload = event.data as PermissionRequestData
+    permissionRequest.value = payload
+    permissionSessionId.value = event.session_id  // Track which session this is for
+  }
+
+  if (event.type === "permission_resolved") {
+    const payload = event.data as PermissionResolvedData
+    // Only dismiss if it matches the current request
+    if (permissionRequest.value?.request_id === payload.request_id) {
+      permissionRequest.value = null
+      permissionSessionId.value = null
+      // Show a brief message if resolved by timeout or cancellation
+      if (payload.resolved_by !== "user" && payload.message) {
+        // Add a temporary output message to show what happened
+        messages.value.push({
+          id: `resolved-${payload.request_id}`,
+          kind: "step",
+          final: `[Permission ${payload.resolved_by}: ${payload.message}]`,
+          thinking: null,
+        })
+      }
+    }
+  }
 }
 
 const onError = (err: unknown) => {
@@ -515,6 +638,49 @@ const copyFinal = (message: ChatMessage) => {
   if (text) copy(text)
 }
 
+const handlePermissionAllow = async () => {
+  // Use the stored session ID, not activeSessionId, to handle race conditions
+  const sessionId = permissionSessionId.value
+  if (!sessionId || !permissionRequest.value) return
+  permissionResponding.value = true
+  try {
+    await respondToPermission(sessionId, {
+      request_id: permissionRequest.value.request_id,
+      allow: true,
+    })
+  } catch (err) {
+    // Permission request may have expired/been cancelled - that's OK, just dismiss
+    console.warn("Permission response failed:", err)
+  } finally {
+    // Always dismiss dialog, even on error (permission no longer exists on backend)
+    permissionRequest.value = null
+    permissionSessionId.value = null
+    permissionResponding.value = false
+  }
+}
+
+const handlePermissionDeny = async () => {
+  // Use the stored session ID, not activeSessionId, to handle race conditions
+  const sessionId = permissionSessionId.value
+  if (!sessionId || !permissionRequest.value) return
+  permissionResponding.value = true
+  try {
+    await respondToPermission(sessionId, {
+      request_id: permissionRequest.value.request_id,
+      allow: false,
+      message: "User denied permission",
+    })
+  } catch (err) {
+    // Permission request may have expired/been cancelled - that's OK, just dismiss
+    console.warn("Permission response failed:", err)
+  } finally {
+    // Always dismiss dialog, even on error (permission no longer exists on backend)
+    permissionRequest.value = null
+    permissionSessionId.value = null
+    permissionResponding.value = false
+  }
+}
+
 const parseRawDiff = (source: string): DiffFile[] => {
   const lines = source.split("\n")
   const files: { path: string; hunks: number; lines: string[] }[] = []
@@ -540,7 +706,15 @@ const parseRawDiff = (source: string): DiffFile[] => {
 }
 
 watch(viewMode, async (mode) => {
-  if (mode === "diff") await refreshDiff()
+  // Scroll to top and show loading when switching views
+  document.querySelector('.app-main')?.scrollTo({ top: 0 })
+  loadingView.value = true
+  // Use setTimeout to defer heavy work, allowing spinner animation to run
+  await new Promise((r) => setTimeout(r, 50))
+  if (mode === "diff") {
+    await refreshDiff()
+  }
+  loadingView.value = false
 })
 
 watch(requestRename, () => openRename())
@@ -552,25 +726,41 @@ watch(activeSessionId, async (newId, oldId) => {
   renameOpen.value = false
   infoOpen.value = false
   renameMessage.value = ""
+  permissionRequest.value = null
+  permissionSessionId.value = null
   session.value = null
+  initialLoad.value = false
   if (closeStream) {
     closeStream()
     closeStream = null
   }
   if (!newId) return
-  const exists = await ensureSession()
-  if (!exists) return
-  await refreshDiff()
-  await openStream()
+  loading.value = true
+  try {
+    const exists = await ensureSession()
+    if (!exists) return
+    await refreshDiff()
+    await openStream()
+  } finally {
+    loading.value = false
+  }
 })
 
 onMounted(async () => {
   if (activeSessionId.value) {
-    const exists = await ensureSession()
-    if (exists) {
-      await refreshDiff()
-      await openStream()
+    loading.value = true
+    try {
+      const exists = await ensureSession()
+      if (exists) {
+        await refreshDiff()
+        await openStream()
+      }
+    } finally {
+      loading.value = false
+      initialLoad.value = false
     }
+  } else {
+    initialLoad.value = false
   }
   window.addEventListener("beforeunload", interruptOnUnload)
   window.addEventListener("pagehide", interruptOnUnload)

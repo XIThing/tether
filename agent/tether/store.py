@@ -27,6 +27,17 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
+class PendingPermission:
+    """A permission request waiting for user response."""
+
+    request_id: str
+    tool_name: str
+    tool_input: dict
+    future: asyncio.Future
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
 class SessionRuntime:
     """Per-session runtime state (not persisted to database)."""
 
@@ -38,6 +49,7 @@ class SessionRuntime:
     stop_requested: bool = False
     synced_message_count: int = 0
     synced_turn_count: int = 0  # Number of conversation turns (user messages)
+    pending_permissions: dict[str, PendingPermission] = field(default_factory=dict)
 
 
 class SessionStore:
@@ -323,11 +335,42 @@ class SessionStore:
         return bool(runtime and runtime.pending_inputs)
 
     def set_runner_session_id(self, session_id: str, runner_session_id: str) -> None:
-        """Store the runner-specific session id and persist to database."""
+        """Store the runner-specific session id and persist to database.
+
+        IMPORTANT: A session's runner_session_id should never change once set.
+        This maintains a stable 1:1 mapping between Tether sessions and external
+        Claude sessions. If the session already has a runner_session_id, this
+        call is ignored (with a warning if the IDs differ).
+        """
         session = self._sessions.get(session_id)
-        if session:
-            session.runner_session_id = runner_session_id
-            self._persist_session(session)
+        if not session:
+            return
+
+        # Never change an existing runner_session_id
+        if session.runner_session_id is not None:
+            if session.runner_session_id != runner_session_id:
+                logger.warning(
+                    "Ignoring attempt to change runner_session_id",
+                    session_id=session_id,
+                    existing=session.runner_session_id,
+                    attempted=runner_session_id,
+                )
+            return
+
+        # Check if another session already has this runner_session_id
+        existing_session_id = self.find_session_by_runner_session_id(runner_session_id)
+        if existing_session_id and existing_session_id != session_id:
+            logger.warning(
+                "runner_session_id already belongs to another session",
+                this_session_id=session_id,
+                other_session_id=existing_session_id,
+                runner_session_id=runner_session_id,
+            )
+            # Don't steal from another session - just skip setting it
+            return
+
+        session.runner_session_id = runner_session_id
+        self._persist_session(session)
 
     def get_runner_session_id(self, session_id: str) -> str | None:
         """Fetch the runner-specific session id."""
@@ -573,6 +616,98 @@ class SessionStore:
         runtime = self._runtime.get(session_id)
         if runtime:
             runtime.stop_requested = False
+
+    def add_pending_permission(
+        self,
+        session_id: str,
+        request_id: str,
+        tool_name: str,
+        tool_input: dict,
+        future: asyncio.Future,
+    ) -> None:
+        """Add a pending permission request waiting for user response.
+
+        Args:
+            session_id: Internal session identifier.
+            request_id: Unique identifier for this permission request.
+            tool_name: Name of the tool requesting permission.
+            tool_input: Input parameters for the tool.
+            future: Future to resolve when user responds.
+        """
+        runtime = self._get_runtime(session_id)
+        runtime.pending_permissions[request_id] = PendingPermission(
+            request_id=request_id,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            future=future,
+        )
+
+    def get_pending_permission(
+        self, session_id: str, request_id: str
+    ) -> PendingPermission | None:
+        """Get a pending permission request by ID.
+
+        Args:
+            session_id: Internal session identifier.
+            request_id: The permission request ID.
+
+        Returns:
+            The pending permission if found, None otherwise.
+        """
+        runtime = self._runtime.get(session_id)
+        if not runtime:
+            return None
+        return runtime.pending_permissions.get(request_id)
+
+    def get_all_pending_permissions(self, session_id: str) -> list[PendingPermission]:
+        """Get all pending permission requests for a session.
+
+        Args:
+            session_id: Internal session identifier.
+
+        Returns:
+            List of pending permissions, empty if none.
+        """
+        runtime = self._runtime.get(session_id)
+        if not runtime:
+            return []
+        return list(runtime.pending_permissions.values())
+
+    def resolve_pending_permission(
+        self, session_id: str, request_id: str, result: dict
+    ) -> bool:
+        """Resolve a pending permission request with the user's decision.
+
+        Args:
+            session_id: Internal session identifier.
+            request_id: The permission request ID.
+            result: The permission result dict (allow/deny with details).
+
+        Returns:
+            True if the permission was found and resolved, False otherwise.
+        """
+        runtime = self._runtime.get(session_id)
+        if not runtime:
+            return False
+        pending = runtime.pending_permissions.pop(request_id, None)
+        if not pending:
+            return False
+        if not pending.future.done():
+            pending.future.set_result(result)
+        return True
+
+    def clear_pending_permissions(self, session_id: str) -> None:
+        """Clear all pending permission requests for a session.
+
+        Args:
+            session_id: Internal session identifier.
+        """
+        runtime = self._runtime.get(session_id)
+        if runtime:
+            for pending in runtime.pending_permissions.values():
+                if not pending.future.done():
+                    pending.future.cancel()
+            runtime.pending_permissions.clear()
 
     def read_event_log(
         self, session_id: str, *, since_seq: int = 0, limit: int | None = None
