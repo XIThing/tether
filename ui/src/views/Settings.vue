@@ -18,6 +18,58 @@
       </div>
     </div>
     <div class="space-y-2">
+      <p class="text-xs uppercase tracking-[0.4em] text-stone-500">Approval Mode</p>
+      <div class="space-y-3 rounded-2xl border border-stone-800/70 bg-stone-950/40 p-4">
+        <p class="text-sm text-stone-400">
+          Control when Claude needs your permission to use tools.
+        </p>
+        <div class="space-y-2">
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="approvalMode"
+              :value="0"
+              v-model="approvalMode"
+              @change="saveApprovalMode"
+              class="w-4 h-4 accent-amber-500"
+            />
+            <span class="text-sm text-stone-300">
+              <span class="font-medium">Interactive</span>
+              <span class="text-stone-500"> — Ask before each tool use</span>
+            </span>
+          </label>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="approvalMode"
+              :value="1"
+              v-model="approvalMode"
+              @change="saveApprovalMode"
+              class="w-4 h-4 accent-amber-500"
+            />
+            <span class="text-sm text-stone-300">
+              <span class="font-medium">Auto-approve edits</span>
+              <span class="text-stone-500"> — Only ask for destructive actions</span>
+            </span>
+          </label>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="approvalMode"
+              :value="2"
+              v-model="approvalMode"
+              @change="saveApprovalMode"
+              class="w-4 h-4 accent-amber-500"
+            />
+            <span class="text-sm text-stone-300">
+              <span class="font-medium">Full auto</span>
+              <span class="text-stone-500"> — Never ask (current default)</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-2">
       <p class="text-xs uppercase tracking-[0.4em] text-stone-500">Maintenance</p>
       <div class="space-y-3 rounded-2xl border border-stone-800/70 bg-stone-950/40 p-4">
         <p class="text-sm text-stone-400">
@@ -34,13 +86,23 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { clearAllData, getBaseUrl, getToken, setBaseUrl, setToken } from "../api";
+import {
+  clearAllData,
+  getApprovalMode,
+  getBaseUrl,
+  getToken,
+  setApprovalMode,
+  setBaseUrl,
+  setToken,
+  type ApprovalMode,
+} from "../api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 const baseUrl = ref(getBaseUrl());
 const token = ref(getToken());
+const approvalMode = ref<ApprovalMode>(getApprovalMode());
 const saved = ref(false);
 const cleared = ref(false);
 
@@ -51,6 +113,10 @@ const save = () => {
   setTimeout(() => {
     saved.value = false;
   }, 1200);
+};
+
+const saveApprovalMode = () => {
+  setApprovalMode(approvalMode.value);
 };
 
 const clearData = async () => {

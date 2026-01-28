@@ -229,6 +229,77 @@ async def emit_input_required(session: Session, last_output: str | None = None) 
     )
 
 
+async def emit_permission_request(
+    session: Session,
+    *,
+    request_id: str,
+    tool_name: str,
+    tool_input: dict,
+    suggestions: list | None = None,
+) -> None:
+    """Emit a permission_request event when Claude needs approval for a tool.
+
+    Args:
+        session: Session requesting permission.
+        request_id: Unique identifier for this permission request.
+        tool_name: Name of the tool requesting permission.
+        tool_input: Input parameters for the tool.
+        suggestions: Optional permission suggestions from the SDK.
+    """
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "permission_request",
+            "data": {
+                "request_id": request_id,
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "suggestions": suggestions,
+            },
+        },
+    )
+
+
+async def emit_permission_resolved(
+    session: Session,
+    *,
+    request_id: str,
+    resolved_by: str,
+    allowed: bool,
+    message: str | None = None,
+) -> None:
+    """Emit a permission_resolved event when a permission request is resolved.
+
+    This is used to dismiss permission dialogs in the UI when the request is
+    resolved by timeout, cancellation, or other backend events.
+
+    Args:
+        session: Session that had the permission request.
+        request_id: Unique identifier for the permission request.
+        resolved_by: How it was resolved ("timeout", "cancelled", "user").
+        allowed: Whether the permission was allowed.
+        message: Optional message explaining the resolution.
+    """
+    await store.emit(
+        session.id,
+        {
+            "session_id": session.id,
+            "ts": now(),
+            "seq": store.next_seq(session.id),
+            "type": "permission_resolved",
+            "data": {
+                "request_id": request_id,
+                "resolved_by": resolved_by,
+                "allowed": allowed,
+                "message": message,
+            },
+        },
+    )
+
+
 async def emit_history_message(
     session: Session,
     role: str,
