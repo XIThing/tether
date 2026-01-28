@@ -1,0 +1,3 @@
+include README.md
+recursive-include tether/static_ui *
+include tether/py.typed

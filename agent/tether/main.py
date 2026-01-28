@@ -47,7 +47,8 @@ async def _start_maintenance() -> None:
 app.include_router(api_router)
 app.include_router(root_router)
 
-if __name__ == "__main__":
+def run() -> None:
+    """Entry point for the tether-agent console script."""
     _ensure_token()
     app.state.agent_token = settings.token()
     uvicorn.run(
@@ -56,5 +57,9 @@ if __name__ == "__main__":
         port=settings.port(),
         reload=False,
     )
+
+
+if __name__ == "__main__":
+    run()
 else:
     app.state.agent_token = settings.token()

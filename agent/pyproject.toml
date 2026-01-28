@@ -5,7 +5,39 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tether-agent"
 version = "0.1.0"
+description = "Control your AI coding agents from your phone when you're away from your desk"
+readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.10"
+authors = [
+  { name = "Lars de Ridder", email = "lars@xithing.io" },
+]
+maintainers = [
+  { name = "Lars de Ridder", email = "lars@xithing.io" },
+]
+keywords = [
+  "ai",
+  "agent",
+  "claude",
+  "codex",
+  "remote",
+  "mobile",
+  "coding-assistant",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Quality Assurance",
+  "Typing :: Typed",
+]
 dependencies = [
   "fastapi==0.110.0",
   "uvicorn==0.27.1",
@@ -27,8 +59,21 @@ dev = [
   "pytest-anyio>=0.0.0",
 ]
 
+[project.urls]
+Homepage = "https://gettether.dev"
+Documentation = "https://github.com/XIThing/tether#readme"
+Repository = "https://github.com/XIThing/tether"
+Issues = "https://github.com/XIThing/tether/issues"
+Changelog = "https://github.com/XIThing/tether/releases"
+
+[project.scripts]
+tether-agent = "tether.main:run"
+
 [tool.setuptools.packages.find]
 include = ["tether*"]
+
+[tool.setuptools.package-data]
+tether = ["static_ui/**/*", "py.typed"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
