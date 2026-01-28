@@ -16,8 +16,9 @@ ui/node_modules/
 ui/dist/
 ui/dev-dist/
 
-# Built UI
+# Built stuff
 agent/tether/static_ui/
+agent/dist/
 
 # Agent data
 agent/data/

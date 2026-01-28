@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tether-agent"
+name = "tether"
 version = "0.1.0"
 description = "Control your AI coding agents from your phone when you're away from your desk"
 readme = "README.md"
