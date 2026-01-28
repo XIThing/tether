@@ -134,7 +134,8 @@ Currently, Tether works on your local network. For remote access today, you can 
 ## Current Status
 
 **What works:**
-- Attach to existing Claude and Codex sessions from the web UI (and start new sessions)
+- PWA-ready mobile-first Web UI (works on Desktop too)
+- Attach to existing Claude and Codex sessions (and start new sessions)
 - Monitor live output from your phone or desktop
 - Send input and instructions to the agent
 - Integrated Git diff viewer in the web UI
