@@ -14,6 +14,7 @@ agent/.venv/
 node_modules/
 ui/node_modules/
 ui/dist/
+ui/dev-dist/
 
 # Built UI
 agent/tether/static_ui/

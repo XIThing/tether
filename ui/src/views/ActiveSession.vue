@@ -1,5 +1,5 @@
 <template>
-  <section class="space-y-4 pb-48">
+  <section class="space-y-4 pb-24">
     <SessionInfoPanel
       :session="session"
       :header="headerData"

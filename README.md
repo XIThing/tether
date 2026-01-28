@@ -117,7 +117,7 @@ Claude Code and Codex require you to be at your PC. Tether provides a mobile UI 
 
 **Is my code sent to the cloud?**
 
-Tether runs entirely on your machine. Your code stays local and is never sent to Tether servers. The only external communication is between you and your chosen AI provider (Anthropic or OpenAI).
+Tether runs entirely on your machine. Your code stays local and is never sent to Tether servers (there are no Tether servers). The only external communication is between you and your chosen AI provider (Anthropic or OpenAI).
 
 **Do I need an API key to use Tether?**
 
