@@ -22,6 +22,7 @@ from tether.api.schemas import (
     RenameSessionRequest,
     SessionResponse,
     StartSessionRequest,
+    UpdateApprovalModeRequest,
 )
 from tether.api.state import maybe_set_session_name, now, transition
 from tether.diff import parse_git_diff
@@ -294,6 +295,38 @@ async def get_diff(session_id: str, _: None = Depends(require_token)) -> DiffRes
             return DiffResponse(diff=diff_text, files=files)
         logger.info("Diff unavailable", path=target, reason="no repository")
         return DiffResponse(diff="", files=[])
+
+
+@router.patch("/sessions/{session_id}/approval-mode", response_model=SessionResponse)
+async def update_approval_mode(
+    session_id: str,
+    payload: UpdateApprovalModeRequest,
+    _: None = Depends(require_token),
+) -> SessionResponse:
+    """Update the approval mode for a session."""
+    with _session_logging_context(session_id):
+        session = store.get_session(session_id)
+        if not session:
+            raise_http_error("NOT_FOUND", "Session not found", 404)
+
+        session.approval_mode = payload.approval_mode
+        store.update_session(session)
+
+        # Update runner's permission mode if session is active
+        if session.state in (SessionState.RUNNING, SessionState.AWAITING_INPUT):
+            runner = get_api_runner()
+            if payload.approval_mode is not None:
+                runner.update_permission_mode(session_id, payload.approval_mode)
+            else:
+                # If clearing the override, we can't really change the running mode
+                # The next start will use the global default
+                pass
+
+        logger.info(
+            "Session approval mode updated",
+            approval_mode=session.approval_mode,
+        )
+        return SessionResponse.from_session(session, store)
 
 
 @router.post("/sessions/{session_id}/permission", response_model=OkResponse)

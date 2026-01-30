@@ -92,6 +92,7 @@ class Session(SQLModel, table=True):
     directory: Optional[str] = None
     directory_has_git: bool = False
     workdir_managed: bool = False
+    approval_mode: Optional[int] = None  # None = use global default, 0/1/2 = override
 
     @property
     def repo_ref(self) -> RepoRef:

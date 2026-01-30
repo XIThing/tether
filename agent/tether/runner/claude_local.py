@@ -183,6 +183,22 @@ class ClaudeLocalRunner:
         else:
             return "default"
 
+    def update_permission_mode(self, session_id: str, approval_choice: int) -> None:
+        """Update permission mode for an active session.
+
+        Args:
+            session_id: Internal session identifier.
+            approval_choice: Approval policy (0=interactive, 1=acceptEdits, 2=bypassPermissions).
+        """
+        permission_mode = self._map_permission_mode(approval_choice)
+        self._permission_modes[session_id] = permission_mode
+        logger.info(
+            "Updated permission mode",
+            session_id=session_id,
+            approval_choice=approval_choice,
+            permission_mode=permission_mode,
+        )
+
     def _make_pre_tool_use_hook(self, session_id: str):
         """Create a PreToolUse hook callback for permission handling.
 

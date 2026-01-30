@@ -70,6 +70,19 @@ class AttachSessionRequest(BaseModel):
     directory: str
 
 
+class UpdateApprovalModeRequest(BaseModel):
+    """Request body for updating session approval mode.
+
+    approval_mode values:
+        None = Use global default
+        0 = Interactive (ask for permissions via UI)
+        1 = Auto-approve edits only
+        2 = Full auto-approve (bypass all permissions)
+    """
+
+    approval_mode: Literal[0, 1, 2] | None = None
+
+
 # --- Response Models ---
 
 
@@ -92,6 +105,7 @@ class SessionResponse(BaseModel):
     directory_has_git: bool
     message_count: int
     has_pending_permission: bool
+    approval_mode: int | None  # None = use global default, 0/1/2 = override
 
     @classmethod
     def from_session(cls, session: Session, store: SessionStore) -> SessionResponse:
@@ -113,6 +127,7 @@ class SessionResponse(BaseModel):
             directory_has_git=session.directory_has_git,
             message_count=store.get_message_count(session.id),
             has_pending_permission=len(store.get_all_pending_permissions(session.id)) > 0,
+            approval_mode=session.approval_mode,
         )
 
 

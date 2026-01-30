@@ -140,6 +140,13 @@ export function useSessions() {
     error.value = "";
   };
 
+  const updateSession = (updated: Session) => {
+    const index = sessions.value.findIndex((s) => s.id === updated.id);
+    if (index !== -1) {
+      sessions.value[index] = updated;
+    }
+  };
+
   // Sync URL when active session changes
   watch(activeSessionId, (newId, oldId) => {
     if (newId === oldId) return;
@@ -181,6 +188,7 @@ export function useSessions() {
     remove,
     select,
     sync,
-    clearError
+    clearError,
+    updateSession
   };
 }

@@ -10,6 +10,7 @@
         @sync="handleSync"
         @rename="openRename"
         @info="openInfo"
+        @update:session="updateSession"
       />
 
       <main class="app-main" ref="scrollContainer">
@@ -140,7 +141,8 @@ const {
   create: createSession,
   remove: removeSession,
   select: selectSession,
-  sync: handleSync
+  sync: handleSync,
+  updateSession
 } = useSessions();
 
 // Directory input validation

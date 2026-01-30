@@ -17,6 +17,7 @@ export type Session = {
   directory_has_git: boolean;
   message_count: number;
   has_pending_permission: boolean;
+  approval_mode: ApprovalMode | null;  // null = use global default
 };
 
 export type EventEnvelope = {
@@ -262,6 +263,16 @@ export async function renameSession(id: string, name: string): Promise<Session> 
   return await fetchJson<Session>(`/api/sessions/${id}/rename`, {
     method: "PATCH",
     body: JSON.stringify({ name }),
+  });
+}
+
+export async function updateSessionApprovalMode(
+  id: string,
+  approvalMode: ApprovalMode | null
+): Promise<Session> {
+  return await fetchJson<Session>(`/api/sessions/${id}/approval-mode`, {
+    method: "PATCH",
+    body: JSON.stringify({ approval_mode: approvalMode }),
   });
 }
 

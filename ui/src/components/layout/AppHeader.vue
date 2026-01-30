@@ -28,6 +28,50 @@
 
       <!-- Right: actions -->
       <div class="flex items-center gap-1">
+        <!-- Approval mode button -->
+        <div v-if="hasActiveSession" class="relative" ref="approvalMenuRef">
+          <button
+            class="flex h-10 items-center gap-1.5 rounded-lg px-2.5 text-stone-400 transition hover:bg-stone-800 hover:text-stone-200"
+            @click="approvalMenuOpen = !approvalMenuOpen"
+            :title="approvalModeTitle"
+          >
+            <component :is="approvalModeIcon" class="h-4 w-4" :class="approvalModeColor" />
+            <span class="text-xs" :class="approvalModeColor">{{ approvalModeLabel }}</span>
+          </button>
+
+          <!-- Approval mode dropdown -->
+          <transition name="fade">
+            <div
+              v-if="approvalMenuOpen"
+              class="absolute right-0 top-full mt-1 w-56 rounded-xl border border-stone-800 bg-stone-900 py-1 shadow-xl"
+            >
+              <div class="px-3 py-2 text-xs font-medium text-stone-500 uppercase tracking-wide">
+                Approval Mode
+              </div>
+              <button
+                v-for="mode in approvalModes"
+                :key="mode.value"
+                class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-stone-800"
+                :class="effectiveApprovalMode === mode.value ? 'text-blue-400' : 'text-stone-300'"
+                @click="handleApprovalModeChange(mode.value)"
+              >
+                <component :is="mode.icon" class="h-4 w-4" />
+                <span class="flex-1">{{ mode.label }}</span>
+                <span v-if="effectiveApprovalMode === mode.value" class="text-xs text-blue-400">✓</span>
+              </button>
+              <div v-if="activeSession?.approval_mode !== null" class="border-t border-stone-800 mt-1 pt-1">
+                <button
+                  class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-stone-400 transition hover:bg-stone-800"
+                  @click="handleApprovalModeChange(null)"
+                >
+                  <RotateCcw class="h-4 w-4" />
+                  <span>Use global default</span>
+                </button>
+              </div>
+            </div>
+          </transition>
+        </div>
+
         <!-- Sync button -->
         <button
           v-if="hasActiveSession"
@@ -76,9 +120,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
-import { Menu, MoreVertical, RefreshCw } from "lucide-vue-next";
-import type { Session } from "@/api";
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { Menu, MoreVertical, RefreshCw, Shield, ShieldCheck, ShieldOff, RotateCcw } from "lucide-vue-next";
+import type { Session, ApprovalMode } from "@/api";
+import { getApprovalMode, updateSessionApprovalMode } from "@/api";
 
 const props = defineProps<{
   activeSession: Session | undefined;
@@ -92,10 +137,50 @@ const emit = defineEmits<{
   sync: [];
   rename: [];
   info: [];
+  "update:session": [session: Session];
 }>();
 
 const menuOpen = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
+const approvalMenuOpen = ref(false);
+const approvalMenuRef = ref<HTMLElement | null>(null);
+
+const approvalModes = [
+  { value: 0 as ApprovalMode, label: "Interactive", icon: Shield },
+  { value: 1 as ApprovalMode, label: "Auto-approve edits", icon: ShieldCheck },
+  { value: 2 as ApprovalMode, label: "Full auto-approve", icon: ShieldOff },
+];
+
+const effectiveApprovalMode = computed<ApprovalMode>(() => {
+  if (props.activeSession?.approval_mode !== null && props.activeSession?.approval_mode !== undefined) {
+    return props.activeSession.approval_mode as ApprovalMode;
+  }
+  return getApprovalMode();
+});
+
+const approvalModeIcon = computed(() => {
+  const mode = approvalModes.find(m => m.value === effectiveApprovalMode.value);
+  return mode?.icon ?? Shield;
+});
+
+const approvalModeLabel = computed(() => {
+  const mode = approvalModes.find(m => m.value === effectiveApprovalMode.value);
+  if (effectiveApprovalMode.value === 0) return "Ask";
+  if (effectiveApprovalMode.value === 1) return "Edits";
+  return "Auto";
+});
+
+const approvalModeColor = computed(() => {
+  if (effectiveApprovalMode.value === 0) return "text-amber-400";
+  if (effectiveApprovalMode.value === 1) return "text-blue-400";
+  return "text-emerald-400";
+});
+
+const approvalModeTitle = computed(() => {
+  const mode = approvalModes.find(m => m.value === effectiveApprovalMode.value);
+  const isOverride = props.activeSession?.approval_mode !== null;
+  return `${mode?.label}${isOverride ? " (session override)" : " (global default)"}`;
+});
 
 const handleRename = () => {
   emit("rename");
@@ -107,10 +192,25 @@ const handleInfo = () => {
   menuOpen.value = false;
 };
 
+const handleApprovalModeChange = async (mode: ApprovalMode | null) => {
+  if (!props.activeSession) return;
+  approvalMenuOpen.value = false;
+  try {
+    const updated = await updateSessionApprovalMode(props.activeSession.id, mode);
+    emit("update:session", updated);
+  } catch (err) {
+    console.error("Failed to update approval mode:", err);
+  }
+};
+
 const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-  if (!menuOpen.value) return;
-  if (menuRef.value?.contains(event.target as Node)) return;
-  menuOpen.value = false;
+  const target = event.target as Node;
+  if (menuOpen.value && !menuRef.value?.contains(target)) {
+    menuOpen.value = false;
+  }
+  if (approvalMenuOpen.value && !approvalMenuRef.value?.contains(target)) {
+    approvalMenuOpen.value = false;
+  }
 };
 
 onMounted(() => {
