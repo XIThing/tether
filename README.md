@@ -129,7 +129,7 @@ SSH is finnicky to set up for mobile access and awkward to use on a phone. When 
 
 **Can I access Tether from outside my home network?**
 
-Currently, Tether works on your local network. For remote access today, you can use a VPN like Tailscale or WireGuard. We're building a hosted relay service that will let you securely access your agent from anywhere without VPN setup. See [gettether.dev](https://gettether.dev) for updates.
+Yes! We recommend [Tailscale](https://tailscale.com) — it's free, takes 5 minutes to set up, and keeps your data off third-party servers. Install Tailscale on your computer and phone, then access Tether via your Tailscale IP. This aligns with Tether's local-first philosophy: your code never leaves your network.
 
 ## Current Status
 
@@ -142,7 +142,6 @@ Currently, Tether works on your local network. For remote access today, you can 
 - Shortcuts in the web UI for common actions to reduce typing effort
 
 **Work in progress:**
-- Local network only (no relay yet)
 - Claude runner is more stable than Codex
 - No approvals handling yet (agents run with auto-approve)
 - Web UI only (no native mobile app)
@@ -157,7 +156,6 @@ Currently, Tether works on your local network. For remote access today, you can 
 
 **Later:**
 - More agent integrations
-- Hosted relay service (access from anywhere without VPN)
 - Native mobile app
 
 See [gettether.dev](https://gettether.dev) for updates.
