@@ -134,12 +134,15 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
         httpx.HTTPError: If API call fails.
     """
     base_url = f"http://localhost:{settings.port()}"
+    token = settings.token()
+    headers = {"Authorization": f"Bearer {token}"} if token else None
 
     async with httpx.AsyncClient() as client:
         if tool_name == "create_session":
             # Map MCP arguments to REST API format
             response = await client.post(
                 f"{base_url}/api/external/sessions",
+                headers=headers,
                 json={
                     "agent_metadata": {
                         "name": arguments["agent_name"],
@@ -158,6 +161,7 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
             session_id = arguments["session_id"]
             response = await client.post(
                 f"{base_url}/api/external/sessions/{session_id}/events",
+                headers=headers,
                 json={
                     "type": "output",
                     "data": {
@@ -172,6 +176,7 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
             session_id = arguments["session_id"]
             response = await client.post(
                 f"{base_url}/api/external/sessions/{session_id}/events",
+                headers=headers,
                 json={
                     "type": "approval_request",
                     "data": {
@@ -191,6 +196,7 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
             since_seq = arguments.get("since_seq", 0)
             response = await client.get(
                 f"{base_url}/api/external/sessions/{session_id}/events",
+                headers=headers,
                 params={"since_seq": since_seq},
             )
             response.raise_for_status()

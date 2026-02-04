@@ -18,6 +18,11 @@ from tether.models import SessionState
 from tether.runner import Runner, get_runner
 from tether.store import store
 
+# Import at end to avoid circular dependency
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from tether.api.runner_registry import RunnerRegistry
+
 
 class ApiRunnerEvents:
     """Runner callbacks that bridge process events into SSE output."""
@@ -188,13 +193,26 @@ class ApiRunnerEvents:
         )
 
 
-# Lazy runner initialization to speed up startup
-_runner: Runner | None = None
+# Lazy registry initialization to speed up startup
+_registry: "RunnerRegistry | None" = None
 
 
-def get_api_runner() -> Runner:
-    """Get the runner instance, initializing lazily on first call."""
-    global _runner
-    if _runner is None:
-        _runner = get_runner(ApiRunnerEvents())
-    return _runner
+def get_runner_registry() -> "RunnerRegistry":
+    """Get the global runner registry, creating it if needed."""
+    global _registry
+    if _registry is None:
+        from tether.api.runner_registry import RunnerRegistry
+        _registry = RunnerRegistry(ApiRunnerEvents())
+    return _registry
+
+
+def get_api_runner(adapter_name: str | None = None) -> Runner:
+    """Get runner for specified adapter, or default if none specified.
+
+    Args:
+        adapter_name: Optional adapter override.
+
+    Returns:
+        Runner instance for the adapter.
+    """
+    return get_runner_registry().get_runner(adapter_name)

@@ -78,7 +78,7 @@ Set environment variables to configure:
 |----------|-------------|---------|
 | `TETHER_AGENT_HOST` | Host to bind to | `0.0.0.0` |
 | `TETHER_AGENT_PORT` | Port to listen on | `8787` |
-| `TETHER_AGENT_TOKEN` | Auth token (required unless dev mode) | — |
+| `TETHER_AGENT_TOKEN` | Auth token (optional; if set, API/UI/MCP require bearer auth) | — |
 | `TETHER_AGENT_DEV_MODE` | Enable dev mode (no token required) | `0` |
 | `TETHER_AGENT_ADAPTER` | AI adapter to use | `claude_local` |
 | `TETHER_AGENT_DATA_DIR` | Data storage directory | `./data` |

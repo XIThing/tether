@@ -26,6 +26,7 @@ class CreateSessionRequest(BaseModel):
     repo_id: str | None = None
     directory: str | None = None
     base_ref: str | None = None
+    adapter: str | None = None
 
 
 class StartSessionRequest(BaseModel):
@@ -106,6 +107,7 @@ class SessionResponse(BaseModel):
     message_count: int
     has_pending_permission: bool
     approval_mode: int | None  # None = use global default, 0/1/2 = override
+    adapter: str | None  # Adapter configured for this session
 
     @classmethod
     def from_session(cls, session: Session, store: SessionStore) -> SessionResponse:
@@ -128,6 +130,7 @@ class SessionResponse(BaseModel):
             message_count=store.get_message_count(session.id),
             has_pending_permission=len(store.get_all_pending_permissions(session.id)) > 0,
             approval_mode=session.approval_mode,
+            adapter=session.adapter,
         )
 
 

@@ -36,10 +36,10 @@ cp .env.example .env
 
 1. **Ask the user** which AI model they want to use: **Claude** (default) or **Codex**
 
-2. Generate a secure token and update `.env`:
+2. (Recommended) Generate a secure token and update `.env`:
    - Set `TETHER_AGENT_TOKEN` to a random value (e.g., `openssl rand -hex 16`)
    - If user chose Codex, set `TETHER_AGENT_ADAPTER=codex_sdk_sidecar`
-   - **Show the user the token** - they need it to log in to the web UI
+   - **Show the user the token** - it’s needed for the web UI, API requests, and MCP server calls when auth is enabled
 
 3. Start the agent:
    ```bash

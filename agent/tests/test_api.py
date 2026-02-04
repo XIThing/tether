@@ -1,5 +1,7 @@
 """Tests for API endpoints."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import httpx
 
@@ -262,3 +264,85 @@ class TestSessionRename:
         )
 
         assert response.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_create_session_with_adapter(
+        self, api_client: httpx.AsyncClient, tmp_path
+    ) -> None:
+        """Create session with adapter field stores it correctly."""
+        test_dir = tmp_path / "test_repo"
+        test_dir.mkdir()
+
+        with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
+            mock_runner = MagicMock()
+            mock_runner.runner_type = "claude_api"
+            mock_get_runner.return_value = mock_runner
+
+            response = await api_client.post(
+                "/api/sessions",
+                json={"directory": str(test_dir), "adapter": "claude_api"}
+            )
+
+            assert response.status_code == 201
+            session = response.json()
+            assert session["adapter"] == "claude_api"
+
+    @pytest.mark.anyio
+    async def test_create_session_without_adapter(
+        self, api_client: httpx.AsyncClient
+    ) -> None:
+        """Create session without adapter uses default."""
+        response = await api_client.post(
+            "/api/sessions",
+            json={"repo_id": "test_repo"}
+        )
+
+        assert response.status_code == 201
+        session = response.json()
+        assert session["adapter"] is None  # Default adapter
+
+    @pytest.mark.anyio
+    async def test_create_session_invalid_adapter(
+        self, api_client: httpx.AsyncClient, tmp_path
+    ) -> None:
+        """Create session with invalid adapter returns 422."""
+        test_dir = tmp_path / "test_repo"
+        test_dir.mkdir()
+
+        with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
+            mock_get_runner.side_effect = ValueError("Unknown agent adapter: invalid")
+
+            response = await api_client.post(
+                "/api/sessions",
+                json={"directory": str(test_dir), "adapter": "invalid"}
+            )
+
+            assert response.status_code == 422
+            data = response.json()
+            assert "Invalid adapter" in data["error"]["message"]
+
+    @pytest.mark.anyio
+    async def test_session_response_includes_adapter(
+        self, api_client: httpx.AsyncClient, tmp_path
+    ) -> None:
+        """Session response includes adapter field."""
+        test_dir = tmp_path / "test_repo"
+        test_dir.mkdir()
+
+        with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
+            mock_runner = MagicMock()
+            mock_runner.runner_type = "codex_cli"
+            mock_get_runner.return_value = mock_runner
+
+            create_resp = await api_client.post(
+                "/api/sessions",
+                json={"directory": str(test_dir), "adapter": "codex_cli"}
+            )
+            session_id = create_resp.json()["id"]
+
+            # Get session and verify adapter is present
+            get_resp = await api_client.get(f"/api/sessions/{session_id}")
+            assert get_resp.status_code == 200
+            session = get_resp.json()
+            assert "adapter" in session
+            assert session["adapter"] == "codex_cli"

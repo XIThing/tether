@@ -93,6 +93,7 @@ class Session(SQLModel, table=True):
     directory_has_git: bool = False
     workdir_managed: bool = False
     approval_mode: Optional[int] = None  # None = use global default, 0/1/2 = override
+    adapter: Optional[str] = None  # Adapter selection (immutable after creation)
 
     # External agent fields
     external_agent_id: Optional[str] = None

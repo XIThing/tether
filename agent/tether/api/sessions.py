@@ -12,7 +12,7 @@ from tether.api.deps import require_token
 from tether.api.diff import build_git_diff
 from tether.api.emit import emit_state, emit_user_input, emit_warning
 from tether.api.errors import raise_http_error
-from tether.api.runner_events import get_api_runner
+from tether.api.runner_events import get_api_runner, get_runner_registry
 from tether.api.schemas import (
     CreateSessionRequest,
     DiffResponse,
@@ -73,6 +73,23 @@ async def create_session(
         normalized_directory = normalize_directory_path(payload.directory)
     resolved_repo_id = payload.repo_id or normalized_directory or "repo_local"
     session = store.create_session(repo_id=resolved_repo_id, base_ref=payload.base_ref)
+
+    # Validate and store adapter selection
+    if payload.adapter:
+        try:
+            # Validate adapter early - this will create runner if needed
+            get_runner_registry().validate_adapter(payload.adapter)
+            session.adapter = payload.adapter
+            logger.info("Session adapter configured", adapter=payload.adapter)
+        except ValueError as e:
+            # Clean up session before returning error
+            store.delete_session(session.id)
+            raise_http_error(
+                "VALIDATION_ERROR",
+                f"Invalid adapter '{payload.adapter}': {e}",
+                422
+            )
+
     if normalized_directory:
         session.repo_display = normalized_directory
         store.update_session(session)
@@ -83,6 +100,7 @@ async def create_session(
             "Session created",
             repo_id=session.repo_id,
             directory=normalized_directory,
+            adapter=session.adapter,
         )
         return SessionResponse.from_session(session, store)
 
@@ -162,7 +180,10 @@ async def start_session(
                 "Your message will be sent, but may not appear in the other CLI until it's restarted.",
             )
 
-        session.runner_type = get_runner_type()
+        # Get runner for this session's adapter
+        runner = get_api_runner(session.adapter)
+        session.runner_type = runner.runner_type
+
         if not store.get_workdir(session_id):
             store.set_workdir(session_id, session.directory, managed=False)
         maybe_set_session_name(session, prompt)
@@ -174,8 +195,12 @@ async def start_session(
         try:
             if prompt:
                 await emit_user_input(session, prompt)
-            await get_api_runner().start(session_id, prompt, approval_choice)
-            logger.info("Session started")
+            await runner.start(session_id, prompt, approval_choice)
+            logger.info(
+                "Session started",
+                adapter=session.adapter or "default",
+                runner_type=session.runner_type,
+            )
         except Exception as exc:
             # Revert to ERROR state if runner fails to start
             logger.exception("Runner failed to start", session_id=session_id)
@@ -242,7 +267,8 @@ async def send_input(
             await emit_state(session)
         maybe_set_session_name(session, text)
         await emit_user_input(session, text)
-        await get_api_runner().send_input(session_id, text)
+        runner = get_api_runner(session.adapter)
+        await runner.send_input(session_id, text)
         session = store.get_session(session_id)
         if session:
             session.last_activity_at = now()
@@ -268,7 +294,8 @@ async def interrupt_session(session_id: str, _: None = Depends(require_token)) -
         transition(session, SessionState.INTERRUPTING)
         await emit_state(session)
         logger.info("Interrupting session")
-        await get_api_runner().stop(session_id)
+        runner = get_api_runner(session.adapter)
+        await runner.stop(session_id)
         session = store.get_session(session_id)
         if not session:
             raise_http_error("NOT_FOUND", "Session not found", 404)
@@ -314,7 +341,7 @@ async def update_approval_mode(
 
         # Update runner's permission mode if session is active
         if session.state in (SessionState.RUNNING, SessionState.AWAITING_INPUT):
-            runner = get_api_runner()
+            runner = get_api_runner(session.adapter)
             if payload.approval_mode is not None:
                 runner.update_permission_mode(session_id, payload.approval_mode)
             else:

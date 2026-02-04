@@ -31,14 +31,6 @@ app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
-def _ensure_token() -> None:
-    if settings.token() or settings.dev_mode():
-        return
-    raise RuntimeError(
-        "TETHER_AGENT_TOKEN is required unless TETHER_AGENT_DEV_MODE=1"
-    )
-
-
 async def _init_bridges() -> None:
     """Initialize and register messaging platform bridges based on env vars."""
     # Telegram bridge
@@ -95,7 +87,6 @@ async def _init_bridges() -> None:
 
 @app.on_event("startup")
 async def _start_maintenance() -> None:
-    _ensure_token()
     app.state.agent_token = settings.token()
     await _init_bridges()
     asyncio.create_task(maintenance_loop())
@@ -107,7 +98,6 @@ app.include_router(root_router)
 
 def run() -> None:
     """Entry point for the tether-agent console script."""
-    _ensure_token()
     app.state.agent_token = settings.token()
     uvicorn.run(
         "tether.main:app",
