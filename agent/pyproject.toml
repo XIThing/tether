@@ -58,6 +58,18 @@ dev = [
   "anyio[trio]>=4.0.0",
   "pytest-anyio>=0.0.0",
 ]
+telegram = [
+  "python-telegram-bot>=20.0",
+]
+slack = [
+  "slack-sdk>=3.27.0",
+]
+discord = [
+  "discord.py>=2.3.0",
+]
+mcp = [
+  "mcp>=0.1.0",
+]
 
 [project.urls]
 Homepage = "https://gettether.dev"
@@ -68,6 +80,7 @@ Changelog = "https://github.com/XIThing/tether/releases"
 
 [project.scripts]
 tether-agent = "tether.main:run"
+tether-mcp = "tether.mcp.server:main"
 
 [tool.setuptools.packages.find]
 include = ["tether*"]
