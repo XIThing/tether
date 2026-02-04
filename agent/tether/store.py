@@ -51,6 +51,7 @@ class SessionRuntime:
     synced_message_count: int = 0
     synced_turn_count: int = 0  # Number of conversation turns (user messages)
     pending_permissions: dict[str, PendingPermission] = field(default_factory=dict)
+    agent_metadata: dict | None = None  # External agent metadata (not persisted)
 
 
 class SessionStore:
