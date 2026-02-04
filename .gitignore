@@ -28,6 +28,7 @@ agent/data/
 .env
 docker.env
 .idea
+.run/
 
 # Reference data
 codex-src

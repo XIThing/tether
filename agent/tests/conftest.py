@@ -44,12 +44,14 @@ def fresh_store(temp_data_dir, monkeypatch) -> Generator[SessionStore, None, Non
     import tether.api.runner_events
     import tether.api.emit
     import tether.api.debug
+    import tether.api.external_agents
     monkeypatch.setattr(tether.store, "store", new_store)
     monkeypatch.setattr(tether.api.state, "store", new_store)
     monkeypatch.setattr(tether.api.sessions, "store", new_store)
     monkeypatch.setattr(tether.api.runner_events, "store", new_store)
     monkeypatch.setattr(tether.api.emit, "store", new_store)
     monkeypatch.setattr(tether.api.debug, "store", new_store)
+    monkeypatch.setattr(tether.api.external_agents, "store", new_store)
     yield new_store
 
 

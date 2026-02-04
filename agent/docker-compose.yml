@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  tether-agent:
+    build:
+      context: ..
+      dockerfile: agent/Dockerfile
+    ports:
+      - "8787:8787"
+    environment:
+      # Core settings
+      - TETHER_AGENT_HOST=0.0.0.0
+      - TETHER_AGENT_PORT=8787
+      - TETHER_AGENT_DEV_MODE=${TETHER_AGENT_DEV_MODE:-0}
+      - TETHER_AGENT_TOKEN=${TETHER_AGENT_TOKEN}
+      - TETHER_AGENT_ADAPTER=${TETHER_AGENT_ADAPTER:-claude_local}
+      - TETHER_AGENT_DATA_DIR=/app/data
+
+      # AI adapter settings
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+      # Telegram bridge (optional)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_GROUP_ID=${TELEGRAM_GROUP_ID}
+
+      # Slack bridge (optional)
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
+
+      # Discord bridge (optional)
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+    volumes:
+      - tether-data:/app/data
+      # Mount local code for development (uncomment for dev mode)
+      # - ./tether:/app/tether
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Uncomment to run MCP server as separate service
+  # tether-mcp:
+  #   build:
+  #     context: ..
+  #     dockerfile: agent/Dockerfile
+  #   command: python -m tether.mcp.server
+  #   environment:
+  #     - TETHER_API_URL=http://tether-agent:8787
+  #   depends_on:
+  #     - tether-agent
+  #   restart: unless-stopped
+
+volumes:
+  tether-data:
+    driver: local
