@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager, suppress
 
 import structlog
 import uvicorn
@@ -24,7 +25,22 @@ from tether.bridges.manager import bridge_manager
 configure_logging()
 logger = structlog.get_logger(__name__)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.agent_token = settings.token()
+    await _init_bridges()
+    _subscribe_existing_sessions()
+    maintenance_task = asyncio.create_task(maintenance_loop())
+    log_ui_urls(port=settings.port())
+    try:
+        yield
+    finally:
+        maintenance_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await maintenance_task
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.middleware("http")(request_logging_middleware)
 app.add_exception_handler(HTTPException, http_exception_handler)
@@ -85,12 +101,23 @@ async def _init_bridges() -> None:
             logger.exception("Failed to initialize Discord bridge")
 
 
-@app.on_event("startup")
-async def _start_maintenance() -> None:
-    app.state.agent_token = settings.token()
-    await _init_bridges()
-    asyncio.create_task(maintenance_loop())
-    log_ui_urls(port=settings.port())
+def _subscribe_existing_sessions() -> None:
+    """Subscribe bridge events for sessions that have platform bindings.
+
+    Called on startup to handle server restarts — any sessions that were
+    previously bound to a platform get their bridge subscriber reattached.
+    """
+    from tether.bridges.subscriber import bridge_subscriber
+    from tether.store import store
+
+    for session in store.list_sessions():
+        if session.platform:
+            bridge_subscriber.subscribe(session.id, session.platform)
+            logger.info(
+                "Resubscribed bridge for session",
+                session_id=session.id,
+                platform=session.platform,
+            )
 
 
 app.include_router(api_router)

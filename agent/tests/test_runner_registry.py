@@ -84,19 +84,19 @@ def test_get_default_adapter(registry):
 def test_registry_caches_runners(registry, mock_events):
     """Test that registry caches runner instances."""
     # Set a valid adapter for testing
-    with patch.dict(os.environ, {"TETHER_AGENT_ADAPTER": "codex_cli"}):
+    with patch.dict(os.environ, {"TETHER_AGENT_ADAPTER": "codex_sdk_sidecar"}):
         # Mock the runner creation
         with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
             mock_runner = MagicMock()
-            mock_runner.runner_type = "codex_cli"
+            mock_runner.runner_type = "codex"
             mock_get_runner.return_value = mock_runner
 
             # First call should create runner
-            runner1 = registry.get_runner("codex_cli")
+            runner1 = registry.get_runner("codex_sdk_sidecar")
             assert mock_get_runner.call_count == 1
 
             # Second call should return cached runner
-            runner2 = registry.get_runner("codex_cli")
+            runner2 = registry.get_runner("codex_sdk_sidecar")
             assert mock_get_runner.call_count == 1
             assert runner1 is runner2
 
@@ -115,7 +115,7 @@ def test_registry_uses_default_adapter(registry, mock_events):
     """Test that registry uses default adapter when none specified."""
     with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
         mock_runner = MagicMock()
-        mock_runner.runner_type = "codex_cli"
+        mock_runner.runner_type = "codex"
         mock_get_runner.return_value = mock_runner
 
         # Get runner without specifying adapter
@@ -136,8 +136,8 @@ def test_registry_multiple_adapters(registry, mock_events):
         mock_get_runner.side_effect = create_runner
 
         # Get runners for different adapters
-        with patch.dict(os.environ, {"TETHER_AGENT_ADAPTER": "codex_cli"}):
-            runner1 = registry.get_runner("codex_cli")
+        with patch.dict(os.environ, {"TETHER_AGENT_ADAPTER": "codex_sdk_sidecar"}):
+            runner1 = registry.get_runner("codex_sdk_sidecar")
 
         with patch.dict(os.environ, {"TETHER_AGENT_ADAPTER": "claude_api"}):
             runner2 = registry.get_runner("claude_api")

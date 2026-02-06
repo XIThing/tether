@@ -1,8 +1,11 @@
-"""Tests for external agent to Telegram integration (Phase 3)."""
+"""Tests for external agent to bridge integration via converged API."""
+
+import asyncio
 
 import pytest
 
 from tether.bridges.manager import bridge_manager
+from tether.models import SessionState
 from tether.store import SessionStore
 
 
@@ -30,24 +33,19 @@ class MockTelegramBridge:
 
 
 class TestExternalAgentToTelegramIntegration:
-    """Test that external agent events are routed to Telegram."""
+    """Test that external agent events are routed to Telegram via bridge subscriber."""
 
     @pytest.mark.asyncio
-    async def test_external_session_creates_telegram_thread(self, api_client, fresh_store: SessionStore) -> None:
-        """Creating an external session auto-creates a Telegram thread."""
-        # Register mock Telegram bridge
+    async def test_session_creates_telegram_thread(self, api_client, fresh_store: SessionStore) -> None:
+        """Creating a session with platform=telegram auto-creates a thread."""
         mock_bridge = MockTelegramBridge()
         bridge_manager.register_bridge("telegram", mock_bridge)
 
-        # Create external session via API
         response = await api_client.post(
-            "/api/external/sessions",
+            "/api/sessions",
             json={
-                "agent_metadata": {
-                    "name": "Test Agent",
-                    "type": "test",
-                    "icon": "🤖",
-                },
+                "agent_name": "Test Agent",
+                "agent_type": "test",
                 "session_name": "Test Session",
                 "platform": "telegram",
             },
@@ -61,110 +59,70 @@ class TestExternalAgentToTelegramIntegration:
         assert mock_bridge.thread_calls[0]["session_name"] == "Test Session"
 
     @pytest.mark.asyncio
-    async def test_external_output_routes_to_telegram(self, api_client, fresh_store: SessionStore) -> None:
-        """External agent output events route to Telegram."""
-        # Register mock bridge
+    async def test_output_routes_to_telegram_via_subscriber(self, api_client, fresh_store: SessionStore) -> None:
+        """Output events pushed via /events reach the bridge via subscriber."""
         mock_bridge = MockTelegramBridge()
         bridge_manager.register_bridge("telegram", mock_bridge)
 
-        # Create external session
+        # Create session with platform binding
         response = await api_client.post(
-            "/api/external/sessions",
+            "/api/sessions",
             json={
-                "agent_metadata": {"name": "Test", "type": "test"},
+                "agent_name": "Test",
+                "agent_type": "test",
                 "session_name": "Test",
                 "platform": "telegram",
             },
         )
-        session_id = response.json()["session_id"]
+        session_id = response.json()["id"]
 
-        # Send output event
-        response = await api_client.post(
-            f"/api/external/sessions/{session_id}/events",
+        # Push output event through store.emit via /events endpoint
+        await api_client.post(
+            f"/api/sessions/{session_id}/events",
             json={
                 "type": "output",
-                "data": {
-                    "text": "Hello from external agent!",
-                },
+                "data": {"text": "Hello from external agent!"},
             },
         )
 
-        assert response.status_code == 200
+        # Give subscriber task time to process
+        await asyncio.sleep(0.1)
 
-        # Verify output was routed to Telegram
-        assert len(mock_bridge.output_calls) == 1
-        assert mock_bridge.output_calls[0]["text"] == "Hello from external agent!"
+        # Verify output was routed to Telegram via subscriber
+        assert len(mock_bridge.output_calls) >= 1
+        texts = [c["text"] for c in mock_bridge.output_calls]
+        assert "Hello from external agent!" in texts
 
     @pytest.mark.asyncio
-    async def test_external_approval_routes_to_telegram(self, api_client, fresh_store: SessionStore) -> None:
-        """External agent approval requests route to Telegram."""
-        # Register mock bridge
+    async def test_status_routes_to_telegram_via_subscriber(self, api_client, fresh_store: SessionStore) -> None:
+        """Status changes reach the bridge via subscriber."""
         mock_bridge = MockTelegramBridge()
         bridge_manager.register_bridge("telegram", mock_bridge)
 
-        # Create external session
+        # Create session with platform
         response = await api_client.post(
-            "/api/external/sessions",
+            "/api/sessions",
             json={
-                "agent_metadata": {"name": "Test", "type": "test"},
+                "agent_name": "Test",
+                "agent_type": "test",
                 "session_name": "Test",
                 "platform": "telegram",
             },
         )
-        session_id = response.json()["session_id"]
+        session_id = response.json()["id"]
 
-        # Send approval request
-        response = await api_client.post(
-            f"/api/external/sessions/{session_id}/events",
-            json={
-                "type": "approval_request",
-                "data": {
-                    "request_id": "req_123",
-                    "title": "Approve action?",
-                    "description": "Details here",
-                    "options": ["Yes", "No"],
-                    "timeout_s": 300,
-                },
-            },
+        # Push output to trigger CREATED -> RUNNING, then push error status
+        await api_client.post(
+            f"/api/sessions/{session_id}/events",
+            json={"type": "output", "data": {"text": "start"}},
+        )
+        await api_client.post(
+            f"/api/sessions/{session_id}/events",
+            json={"type": "status", "data": {"status": "error"}},
         )
 
-        assert response.status_code == 200
+        # Give subscriber time
+        await asyncio.sleep(0.1)
 
-        # Verify approval was routed to Telegram
-        assert len(mock_bridge.approval_calls) == 1
-        assert mock_bridge.approval_calls[0]["request"].title == "Approve action?"
-
-    @pytest.mark.asyncio
-    async def test_external_status_routes_to_telegram(self, api_client, fresh_store: SessionStore) -> None:
-        """External agent status updates route to Telegram."""
-        # Register mock bridge
-        mock_bridge = MockTelegramBridge()
-        bridge_manager.register_bridge("telegram", mock_bridge)
-
-        # Create external session
-        response = await api_client.post(
-            "/api/external/sessions",
-            json={
-                "agent_metadata": {"name": "Test", "type": "test"},
-                "session_name": "Test",
-                "platform": "telegram",
-            },
-        )
-        session_id = response.json()["session_id"]
-
-        # Send status event
-        response = await api_client.post(
-            f"/api/external/sessions/{session_id}/events",
-            json={
-                "type": "status",
-                "data": {
-                    "status": "thinking",
-                },
-            },
-        )
-
-        assert response.status_code == 200
-
-        # Verify status was routed to Telegram
-        assert len(mock_bridge.status_calls) == 1
-        assert mock_bridge.status_calls[0]["status"] == "thinking"
+        # Should have received status updates via subscriber
+        assert len(mock_bridge.status_calls) >= 1

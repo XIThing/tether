@@ -99,8 +99,8 @@ class TestStringSettings:
         assert Settings.host() == "127.0.0.1"
 
     def test_adapter_default(self, clean_env) -> None:
-        """Adapter defaults to codex_cli."""
-        assert Settings.adapter() == "codex_cli"
+        """Adapter defaults to claude_auto."""
+        assert Settings.adapter() == "claude_auto"
 
     def test_adapter_custom(self, clean_env) -> None:
         """Adapter can be customized."""
@@ -124,12 +124,6 @@ class TestStringSettings:
         """Log format can be customized."""
         clean_env.setenv("TETHER_AGENT_LOG_FORMAT", "JSON")
         assert Settings.log_format() == "json"  # lowercased
-
-    def test_codex_bin(self, clean_env) -> None:
-        """Codex bin path setting."""
-        assert Settings.codex_bin() == ""
-        clean_env.setenv("TETHER_AGENT_CODEX_BIN", "/usr/local/bin/codex")
-        assert Settings.codex_bin() == "/usr/local/bin/codex"
 
     def test_claude_model_default(self, clean_env) -> None:
         """Claude model defaults to sonnet."""

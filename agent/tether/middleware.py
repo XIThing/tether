@@ -41,7 +41,7 @@ async def request_logging_middleware(request: Request, call_next):
     return response
 
 
-def http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(exc.detail, dict) and "error" in exc.detail:
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
     code_map = {
@@ -65,7 +65,7 @@ def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
-def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
         status_code=422,
         content={
@@ -81,5 +81,7 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
 def raise_http_error(code: str, message: str, status_code: int) -> None:
     raise HTTPException(
         status_code=status_code,
-        detail=ErrorResponse(error=ErrorDetail(code=code, message=message, details=None)).dict(),
+        detail=ErrorResponse(
+            error=ErrorDetail(code=code, message=message, details=None)
+        ).model_dump(),
     )

@@ -263,7 +263,6 @@ const expandedDirectoryGroups = ref(new Set<string>());
 const runnerTypes = [
   { value: "all" as const, label: "All" },
   { value: "claude_code" as const, label: "Claude" },
-  { value: "codex_cli" as const, label: "Codex" },
 ];
 
 // Computed

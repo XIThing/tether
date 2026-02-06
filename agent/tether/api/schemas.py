@@ -27,6 +27,13 @@ class CreateSessionRequest(BaseModel):
     directory: str | None = None
     base_ref: str | None = None
     adapter: str | None = None
+    # External agent fields
+    agent_name: str | None = None
+    agent_type: str | None = None
+    agent_icon: str | None = None
+    agent_workspace: str | None = None
+    platform: str | None = None  # "telegram", "slack", "discord"
+    session_name: str | None = None
 
 
 class StartSessionRequest(BaseModel):
@@ -61,6 +68,13 @@ class PermissionResponseRequest(BaseModel):
     allow: bool
     message: str | None = None
     updated_input: dict | None = None
+
+
+class AgentEventRequest(BaseModel):
+    """Request body for pushing an event from an external agent."""
+
+    type: Literal["output", "status", "error", "permission_request"]
+    data: dict
 
 
 class AttachSessionRequest(BaseModel):
@@ -108,6 +122,12 @@ class SessionResponse(BaseModel):
     has_pending_permission: bool
     approval_mode: int | None  # None = use global default, 0/1/2 = override
     adapter: str | None  # Adapter configured for this session
+    # External agent fields
+    external_agent_name: str | None = None
+    external_agent_type: str | None = None
+    external_agent_icon: str | None = None
+    platform: str | None = None
+    platform_thread_id: str | None = None
 
     @classmethod
     def from_session(cls, session: Session, store: SessionStore) -> SessionResponse:
@@ -131,6 +151,11 @@ class SessionResponse(BaseModel):
             has_pending_permission=len(store.get_all_pending_permissions(session.id)) > 0,
             approval_mode=session.approval_mode,
             adapter=session.adapter,
+            external_agent_name=session.external_agent_name,
+            external_agent_type=session.external_agent_type,
+            external_agent_icon=session.external_agent_icon,
+            platform=session.platform,
+            platform_thread_id=session.platform_thread_id,
         )
 
 

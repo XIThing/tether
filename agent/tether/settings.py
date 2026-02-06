@@ -97,16 +97,15 @@ class Settings:
     def adapter() -> str:
         """Runner adapter selection.
 
-        Env: TETHER_AGENT_ADAPTER (default: codex_cli)
+        Env: TETHER_AGENT_ADAPTER (default: claude_auto)
 
         Options:
-            - codex_cli: Legacy Codex CLI runner
             - codex_sdk_sidecar: Codex SDK sidecar
             - claude_api: Claude via Anthropic SDK (requires API key)
             - claude_local: Claude via Agent SDK (CLI OAuth)
             - claude_auto: Auto-detect (prefer OAuth, fallback to API key)
         """
-        return _get("TETHER_AGENT_ADAPTER", default="codex_cli").lower()
+        return _get("TETHER_AGENT_ADAPTER", default="claude_auto").lower()
 
     # -------------------------------------------------------------------------
     # Logging Settings
@@ -161,13 +160,6 @@ class Settings:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def codex_bin() -> str:
-        """Path to the Codex CLI binary.
-
-        Env: TETHER_AGENT_CODEX_BIN (required for codex_cli adapter)
-        """
-        return _get("TETHER_AGENT_CODEX_BIN")
-
     # -------------------------------------------------------------------------
     # Claude Runner Settings
     # -------------------------------------------------------------------------

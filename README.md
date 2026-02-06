@@ -39,6 +39,8 @@ make install
 make start
 ```
 
+Use `make start-codex` to run with the Codex sidecar adapter.
+
 ### Telegram setup
 
 1. Create a bot via [@BotFather](https://t.me/BotFather)
@@ -72,10 +74,10 @@ Set `TETHER_AGENT_ADAPTER` in `.env`:
 
 | Adapter | Description |
 |---------|-------------|
-| `claude_local` | Claude Code via local OAuth (default) |
+| `claude_auto` | Auto-detect (prefer OAuth, fallback to API key) |
+| `claude_local` | Claude Code via local OAuth |
 | `claude_api` | Claude Code via API key |
 | `codex_sdk_sidecar` | Codex via sidecar |
-| `codex_cli` | Legacy Codex CLI |
 
 ## Configuration
 
@@ -83,7 +85,7 @@ Copy `.env.example` to `.env`. Key settings:
 
 ```bash
 TELEGRAM_BOT_TOKEN=       # Your Telegram bot token
-TETHER_AGENT_ADAPTER=     # Agent adapter (default: claude_local)
+TETHER_AGENT_ADAPTER=     # Agent adapter (default: claude_auto)
 TETHER_AUTH_TOKEN=         # Optional: protect the web UI
 ```
 

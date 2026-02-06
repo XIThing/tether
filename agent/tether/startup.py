@@ -12,6 +12,7 @@ logger = structlog.get_logger(__name__)
 def _guess_lan_ip() -> str | None:
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.2)
         try:
             sock.connect(("8.8.8.8", 80))
             return sock.getsockname()[0]

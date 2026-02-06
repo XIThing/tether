@@ -1,8 +1,8 @@
-"""Tests for MCP server wrapper (Phase 3.5)."""
-
-import json
+"""Tests for MCP server wrapper."""
 
 import pytest
+
+from tether.store import SessionStore
 
 
 class TestMCPToolDefinitions:
@@ -51,29 +51,23 @@ class TestMCPToolDefinitions:
 
 
 class TestMCPToolExecution:
-    """Test MCP tool execution calls underlying REST API."""
+    """Test MCP tool execution via converged API endpoints."""
 
     @pytest.mark.asyncio
-    async def test_create_session_executes_correctly(self, api_client) -> None:
-        """MCP create_session tool format can be used."""
-        # The tool execution requires the server to be running
-        # For now, just test via direct API call with MCP-like format
+    async def test_create_session_via_api(self, api_client, fresh_store: SessionStore) -> None:
+        """MCP create_session maps to POST /api/sessions with agent fields."""
         from tether.bridges.manager import bridge_manager
-        from tests.test_external_agent_api import MockBridge
+        from test_external_agent_api import MockBridge
 
-        # Register mock bridge
         bridge = MockBridge()
         bridge_manager.register_bridge("telegram", bridge)
 
-        # Simulate MCP tool call via REST API
+        # Simulate MCP tool call via converged API
         response = await api_client.post(
-            "/api/external/sessions",
+            "/api/sessions",
             json={
-                "agent_metadata": {
-                    "name": "Claude Code",
-                    "type": "claude_code",
-                    "icon": "🤖",
-                },
+                "agent_name": "Claude Code",
+                "agent_type": "claude_code",
                 "session_name": "Test MCP Session",
                 "platform": "telegram",
             },
@@ -81,32 +75,16 @@ class TestMCPToolExecution:
 
         assert response.status_code == 201
         data = response.json()
-        assert "session_id" in data
+        assert "id" in data
+        assert data["external_agent_name"] == "Claude Code"
 
     @pytest.mark.asyncio
-    async def test_send_output_executes_correctly(self, api_client) -> None:
-        """MCP send_output tool format can be used."""
-        from tether.bridges.manager import bridge_manager
-        from tests.test_external_agent_api import MockBridge
+    async def test_send_output_via_api(self, api_client, fresh_store: SessionStore) -> None:
+        """MCP send_output maps to POST /api/sessions/{id}/events."""
+        session = fresh_store.create_session("external", None)
 
-        # Register mock bridge
-        bridge = MockBridge()
-        bridge_manager.register_bridge("mock", bridge)
-
-        # Create session
         response = await api_client.post(
-            "/api/external/sessions",
-            json={
-                "agent_metadata": {"name": "Test", "type": "test"},
-                "session_name": "Test",
-                "platform": "mock",
-            },
-        )
-        session_id = response.json()["session_id"]
-
-        # Send output (MCP format)
-        response = await api_client.post(
-            f"/api/external/sessions/{session_id}/events",
+            f"/api/sessions/{session.id}/events",
             json={
                 "type": "output",
                 "data": {"text": "Test output from MCP"},

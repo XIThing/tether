@@ -80,18 +80,17 @@ Set environment variables to configure:
 | `TETHER_AGENT_PORT` | Port to listen on | `8787` |
 | `TETHER_AGENT_TOKEN` | Auth token (optional; if set, API/UI/MCP require bearer auth) | — |
 | `TETHER_AGENT_DEV_MODE` | Enable dev mode (no token required) | `0` |
-| `TETHER_AGENT_ADAPTER` | AI adapter to use | `claude_local` |
+| `TETHER_AGENT_ADAPTER` | AI adapter to use | `claude_auto` |
 | `TETHER_AGENT_DATA_DIR` | Data storage directory | `./data` |
 
 ### AI Adapters
 
 | Adapter | Description |
 |---------|-------------|
-| `claude_local` | Claude via local OAuth (default, no API key) |
-| `claude_api` | Claude via API key (set `ANTHROPIC_API_KEY`) |
 | `claude_auto` | Auto-detect (prefer OAuth, fallback to API key) |
+| `claude_local` | Claude via local OAuth |
+| `claude_api` | Claude via API key (set `ANTHROPIC_API_KEY`) |
 | `codex_sdk_sidecar` | Codex via sidecar |
-| `codex_cli` | Legacy Codex CLI runner |
 
 ### Messaging Platform Bridges
 

@@ -17,5 +17,7 @@ def raise_http_error(code: str, message: str, status_code: int) -> None:
     """
     raise HTTPException(
         status_code=status_code,
-        detail=ErrorResponse(error=ErrorDetail(code=code, message=message, details=None)).dict(),
+        detail=ErrorResponse(
+            error=ErrorDetail(code=code, message=message, details=None)
+        ).model_dump(),
     )

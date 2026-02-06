@@ -1,14 +1,10 @@
-"""External session discovery for Claude Code and Codex CLI."""
+"""External session discovery for Claude Code."""
 
 from __future__ import annotations
 
 from tether.discovery.claude_code import (
     list_claude_sessions,
     get_claude_session_detail,
-)
-from tether.discovery.codex_cli import (
-    list_codex_sessions,
-    get_codex_session_detail,
 )
 from tether.models import (
     ExternalRunnerType,
@@ -22,7 +18,7 @@ def discover_external_sessions(
     runner_type: ExternalRunnerType | None = None,
     limit: int = 50,
 ) -> list[ExternalSessionSummary]:
-    """Discover external sessions from Claude Code and Codex CLI.
+    """Discover external sessions from Claude Code.
 
     Args:
         directory: Filter to sessions for this project directory.
@@ -36,9 +32,6 @@ def discover_external_sessions(
 
     if runner_type is None or runner_type == ExternalRunnerType.CLAUDE_CODE:
         sessions.extend(list_claude_sessions(directory=directory, limit=limit))
-
-    if runner_type is None or runner_type == ExternalRunnerType.CODEX_CLI:
-        sessions.extend(list_codex_sessions(directory=directory, limit=limit))
 
     # Sort by last_activity descending (most recent first)
     sessions.sort(key=lambda s: s.last_activity, reverse=True)
@@ -64,8 +57,6 @@ def get_external_session_detail(
     """
     if runner_type == ExternalRunnerType.CLAUDE_CODE:
         return get_claude_session_detail(session_id, limit=limit)
-    elif runner_type == ExternalRunnerType.CODEX_CLI:
-        return get_codex_session_detail(session_id, limit=limit)
     return None
 
 

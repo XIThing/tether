@@ -17,14 +17,14 @@ build-ui:
 	rm -rf agent/tether/static_ui
 	cp -r ui/dist agent/tether/static_ui
 
-# Start agent natively (Claude works out of the box)
+# Start agent natively (Claude auto-detect works out of the box)
 start: build-ui
 	cd agent && python -m tether.main
 
 # Start agent + Codex sidecar (sidecar runs in Docker)
 start-codex: build-ui
 	docker compose -f docker-compose.sidecar.yml up -d
-	cd agent && python -m tether.main
+	cd agent && TETHER_AGENT_ADAPTER=codex_sdk_sidecar python -m tether.main
 
 # Stop sidecar container
 stop:

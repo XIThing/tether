@@ -68,7 +68,7 @@ class SlackBridge(BridgeInterface):
         logger.info("Slack bridge stopped")
 
     async def _handle_message(self, event: dict) -> None:
-        """Handle incoming messages from Slack and forward to event log.
+        """Handle incoming messages from Slack and forward via internal API.
 
         Args:
             event: Slack message event dict.
@@ -98,23 +98,17 @@ class SlackBridge(BridgeInterface):
             logger.debug("Received message in thread with no session mapping", thread_ts=thread_ts)
             return
 
-        # Import store here to avoid circular import
-        from tether.store import store
-
-        # Emit human_input event
         try:
-            await store.emit(session_id, {
-                "session_id": session_id,
-                "ts": store._now(),
-                "seq": store.next_seq(session_id),
-                "type": "human_input",
-                "data": {
-                    "text": text,
-                    "username": event.get("user", "unknown"),
-                    "user_id": event.get("user", "unknown"),
-                    "platform": "slack",
-                },
-            })
+            import httpx
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"http://localhost:{settings.port()}/api/sessions/{session_id}/input",
+                    json={"text": text},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+
             logger.info(
                 "Forwarded human input from Slack",
                 session_id=session_id,

@@ -1,168 +1,131 @@
 #!/usr/bin/env python3
-"""Example external agent using Tether's External Agent API.
+"""Example external agent using Tether's API.
 
 This demonstrates how to create a simple external agent that:
-1. Creates a session
-2. Sends output to the user
-3. Requests approvals
-4. Receives input from the user
-5. Properly handles cleanup
+1. Creates a session with platform binding
+2. Sends output via event push
+3. Requests approvals via permission_request events
+4. Polls for user input and permission resolutions
 """
 
 import asyncio
 import httpx
 import sys
 
-TETHER_API_URL = "http://localhost:8787"
+TETHER_URL = "http://localhost:8787"
+TOKEN = ""  # Set if TETHER_AUTH_TOKEN is configured
 
 
-async def create_session(client: httpx.AsyncClient) -> dict:
-    """Create a new session for this external agent."""
-    response = await client.post(
-        f"{TETHER_API_URL}/external/sessions",
-        json={
-            "agent_metadata": {
-                "name": "Example External Agent",
-                "type": "custom",
-                "icon": "🤖",
-                "workspace": "demo",
-            },
-            "session_name": "Demo Task",
-            "platform": "telegram",  # or "slack", "discord"
-        },
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-async def send_output(client: httpx.AsyncClient, session_id: str, text: str) -> None:
-    """Send output text to the user."""
-    response = await client.post(
-        f"{TETHER_API_URL}/external/sessions/{session_id}/output",
-        json={"text": text},
-    )
-    response.raise_for_status()
-
-
-async def request_approval(
-    client: httpx.AsyncClient,
-    session_id: str,
-    title: str,
-    description: str,
-    options: list[str],
-) -> dict:
-    """Request approval from the user."""
-    response = await client.post(
-        f"{TETHER_API_URL}/external/sessions/{session_id}/approval",
-        json={
-            "title": title,
-            "description": description,
-            "options": options,
-        },
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-async def check_input(
-    client: httpx.AsyncClient, session_id: str, timeout: int = 30
-) -> dict | None:
-    """Poll for user input (non-blocking with timeout)."""
-    try:
-        response = await client.get(
-            f"{TETHER_API_URL}/external/sessions/{session_id}/input",
-            params={"timeout": timeout},
-            timeout=timeout + 5,  # Add buffer to HTTP timeout
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data if data else None
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 204:
-            return None  # No input available
-        raise
-
-
-async def end_session(client: httpx.AsyncClient, session_id: str) -> None:
-    """End the session and cleanup."""
-    response = await client.delete(
-        f"{TETHER_API_URL}/external/sessions/{session_id}"
-    )
-    response.raise_for_status()
+def headers() -> dict:
+    if TOKEN:
+        return {"Authorization": f"Bearer {TOKEN}"}
+    return {}
 
 
 async def main():
     """Run the example external agent."""
     async with httpx.AsyncClient() as client:
         try:
-            # Create session
+            # 1. Create session
             print("Creating session...")
-            session_data = await create_session(client)
-            session_id = session_data["session_id"]
-            print(f"Session created: {session_id}")
-            print(f"Platform: {session_data['platform']}")
-            print(f"Thread info: {session_data['thread_info']}")
-
-            # Send initial output
-            await send_output(
-                client,
-                session_id,
-                "Hello! I'm an external agent. I'm going to demonstrate some capabilities.",
+            response = await client.post(
+                f"{TETHER_URL}/api/sessions",
+                headers=headers(),
+                json={
+                    "agent_name": "Example Agent",
+                    "agent_type": "custom",
+                    "session_name": "Demo Task",
+                    "platform": "telegram",
+                },
             )
-            await asyncio.sleep(1)
+            response.raise_for_status()
+            session = response.json()
+            session_id = session["id"]
+            print(f"Session created: {session_id}")
+            print(f"Platform: {session.get('platform')}")
 
-            # Send status update
-            await send_output(client, session_id, "Status: thinking 💭")
+            # 2. Send output (auto-transitions CREATED -> RUNNING)
+            await client.post(
+                f"{TETHER_URL}/api/sessions/{session_id}/events",
+                headers=headers(),
+                json={
+                    "type": "output",
+                    "data": {"text": "Hello! I'm analyzing the codebase..."},
+                },
+            )
             await asyncio.sleep(2)
 
-            # Send some output
-            await send_output(
-                client,
-                session_id,
-                "I've analyzed the codebase and have some suggestions...",
+            # 3. Send more output
+            await client.post(
+                f"{TETHER_URL}/api/sessions/{session_id}/events",
+                headers=headers(),
+                json={
+                    "type": "output",
+                    "data": {"text": "Found some improvements to suggest."},
+                },
             )
             await asyncio.sleep(1)
 
-            # Request approval
+            # 4. Request approval
             print("Requesting approval...")
-            approval_data = await request_approval(
-                client,
-                session_id,
-                title="Approve Changes?",
-                description="I'm ready to apply the suggested refactoring.",
-                options=["Approve", "Reject", "Show Details"],
+            await client.post(
+                f"{TETHER_URL}/api/sessions/{session_id}/events",
+                headers=headers(),
+                json={
+                    "type": "permission_request",
+                    "data": {
+                        "request_id": "approve_refactor",
+                        "tool_name": "Apply refactoring",
+                        "tool_input": {
+                            "description": "Refactor auth module to use dependency injection",
+                        },
+                    },
+                },
             )
-            print(f"Approval requested: {approval_data['request_id']}")
 
-            # Wait for approval response
-            print("Waiting for approval response...")
+            # 5. Poll for resolution
+            print("Waiting for approval...")
+            last_seq = 0
             while True:
-                user_input = await check_input(client, session_id, timeout=30)
-                if user_input:
-                    print(f"Received input: {user_input}")
-                    if user_input["type"] == "approval_response":
-                        choice = user_input["data"]["choice"]
-                        await send_output(
-                            client,
-                            session_id,
-                            f"You selected: {choice}",
-                        )
+                response = await client.get(
+                    f"{TETHER_URL}/api/sessions/{session_id}/events/poll",
+                    headers=headers(),
+                    params={
+                        "since_seq": last_seq,
+                        "types": "user_input,permission_resolved",
+                    },
+                )
+                data = response.json()
+                for evt in data.get("events", []):
+                    print(f"Received: {evt}")
+                    if evt.get("seq"):
+                        last_seq = evt["seq"]
+                    if evt["type"] == "permission_resolved":
+                        print(f"Permission resolved: {evt['data']}")
                         break
                 else:
-                    print("No input yet, waiting...")
+                    await asyncio.sleep(2)
+                    continue
+                break
 
-            # Final output
-            await send_output(
-                client,
-                session_id,
-                "Task complete! This session will end in 5 seconds.",
+            # 6. Signal done
+            await client.post(
+                f"{TETHER_URL}/api/sessions/{session_id}/events",
+                headers=headers(),
+                json={
+                    "type": "output",
+                    "data": {"text": "Task complete!", "is_final": True},
+                },
             )
-            await asyncio.sleep(5)
-
-            # End session
-            print("Ending session...")
-            await end_session(client, session_id)
-            print("Session ended successfully!")
+            await client.post(
+                f"{TETHER_URL}/api/sessions/{session_id}/events",
+                headers=headers(),
+                json={
+                    "type": "status",
+                    "data": {"status": "done"},
+                },
+            )
+            print("Done!")
 
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)

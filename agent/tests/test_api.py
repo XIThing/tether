@@ -331,12 +331,12 @@ class TestSessionRename:
 
         with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
             mock_runner = MagicMock()
-            mock_runner.runner_type = "codex_cli"
+            mock_runner.runner_type = "codex"
             mock_get_runner.return_value = mock_runner
 
             create_resp = await api_client.post(
                 "/api/sessions",
-                json={"directory": str(test_dir), "adapter": "codex_cli"}
+                json={"directory": str(test_dir), "adapter": "codex_sdk_sidecar"}
             )
             session_id = create_resp.json()["id"]
 
@@ -345,4 +345,4 @@ class TestSessionRename:
             assert get_resp.status_code == 200
             session = get_resp.json()
             assert "adapter" in session
-            assert session["adapter"] == "codex_cli"
+            assert session["adapter"] == "codex_sdk_sidecar"

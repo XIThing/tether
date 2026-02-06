@@ -21,12 +21,18 @@ logger = structlog.get_logger(__name__)
 async def clear_data(_: None = Depends(require_token)) -> OkResponse:
     """Clear all persisted sessions and event logs (debug only)."""
     for session in store.list_sessions():
-        if session.state == SessionState.RUNNING:
-            transition(session, SessionState.INTERRUPTING)
-            await emit_state(session)
-            await get_api_runner().stop(session.id)
-        elif session.state == SessionState.INTERRUPTING:
-            await get_api_runner().stop(session.id)
+        if session.state in (SessionState.RUNNING, SessionState.INTERRUPTING):
+            try:
+                if session.state == SessionState.RUNNING:
+                    transition(session, SessionState.INTERRUPTING)
+                    await emit_state(session)
+                await get_api_runner().stop(session.id)
+            except ValueError as exc:
+                logger.warning(
+                    "Skipping runner stop during clear_data; runner unavailable",
+                    session_id=session.id,
+                    error=str(exc),
+                )
     store.clear_all_data()
     logger.warning("Cleared all session data")
     return OkResponse()

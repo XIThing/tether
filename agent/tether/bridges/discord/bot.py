@@ -58,7 +58,7 @@ class DiscordBridge(BridgeInterface):
         logger.info("Discord bridge stopped")
 
     async def _handle_message(self, message: any) -> None:
-        """Handle incoming messages from Discord and forward to event log.
+        """Handle incoming messages from Discord and forward via internal API.
 
         Args:
             message: Discord message object.
@@ -94,23 +94,18 @@ class DiscordBridge(BridgeInterface):
             logger.debug("Received message in thread with no session mapping", thread_id=thread_id)
             return
 
-        # Import store here to avoid circular import
-        from tether.store import store
-
-        # Emit human_input event
         try:
-            await store.emit(session_id, {
-                "session_id": session_id,
-                "ts": store._now(),
-                "seq": store.next_seq(session_id),
-                "type": "human_input",
-                "data": {
-                    "text": text,
-                    "username": message.author.name,
-                    "user_id": str(message.author.id),
-                    "platform": "discord",
-                },
-            })
+            import httpx
+            from tether.settings import settings
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"http://localhost:{settings.port()}/api/sessions/{session_id}/input",
+                    json={"text": text},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+
             logger.info(
                 "Forwarded human input from Discord",
                 session_id=session_id,

@@ -1,1 +1,0 @@
-"""Bridge implementations for Tether."""

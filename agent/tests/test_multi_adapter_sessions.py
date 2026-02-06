@@ -6,25 +6,12 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from tether.main import app
 from tether.api.runner_registry import RunnerRegistry
 from tether.models import SessionState
-from tether.store import store
 
-
-@pytest.fixture
-def client():
-    """Create test client."""
-    return TestClient(app)
-
-
-@pytest.fixture
-def auth_headers():
-    """Create auth headers with test token."""
-    token = os.environ.get("TETHER_AGENT_TOKEN", "test-token")
-    return {"Authorization": f"Bearer {token}"}
+pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +21,7 @@ def setup_test_env():
         os.environ,
         {
             "TETHER_AGENT_TOKEN": "test-token",
-            "TETHER_AGENT_ADAPTER": "codex_cli",
+            "TETHER_AGENT_ADAPTER": "codex_sdk_sidecar",
         },
     ):
         yield
@@ -44,7 +31,7 @@ def setup_test_env():
 def mock_runner():
     """Create a mock runner."""
     runner = MagicMock()
-    runner.runner_type = "codex_cli"
+    runner.runner_type = "codex"
     runner.start = AsyncMock()
     runner.stop = AsyncMock()
     runner.send_input = AsyncMock()
@@ -64,7 +51,7 @@ def mock_claude_runner():
     return runner
 
 
-def test_create_session_with_adapter(client, auth_headers, tmpdir):
+async def test_create_session_with_adapter(api_client, tmpdir):
     """Test creating a session with specific adapter."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
@@ -73,10 +60,9 @@ def test_create_session_with_adapter(client, auth_headers, tmpdir):
         mock_runner.runner_type = "claude_api"
         mock_get_runner.return_value = mock_runner
 
-        response = client.post(
+        response = await api_client.post(
             "/api/sessions",
             json={"directory": test_dir, "adapter": "claude_api"},
-            headers=auth_headers,
         )
 
         assert response.status_code == 201
@@ -85,14 +71,13 @@ def test_create_session_with_adapter(client, auth_headers, tmpdir):
         assert data["directory"] == test_dir
 
 
-def test_create_session_without_adapter(client, auth_headers, tmpdir):
+async def test_create_session_without_adapter(api_client, tmpdir):
     """Test creating a session without adapter uses default."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
-    response = client.post(
+    response = await api_client.post(
         "/api/sessions",
         json={"directory": test_dir},
-        headers=auth_headers,
     )
 
     assert response.status_code == 201
@@ -101,17 +86,16 @@ def test_create_session_without_adapter(client, auth_headers, tmpdir):
     assert data["adapter"] is None
 
 
-def test_create_session_invalid_adapter(client, auth_headers, tmpdir):
+async def test_create_session_invalid_adapter(api_client, tmpdir):
     """Test creating a session with invalid adapter returns error."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
     with patch("tether.api.runner_registry.get_runner") as mock_get_runner:
         mock_get_runner.side_effect = ValueError("Unknown agent adapter: invalid_adapter")
 
-        response = client.post(
+        response = await api_client.post(
             "/api/sessions",
             json={"directory": test_dir, "adapter": "invalid_adapter"},
-            headers=auth_headers,
         )
 
         assert response.status_code == 422
@@ -120,7 +104,9 @@ def test_create_session_invalid_adapter(client, auth_headers, tmpdir):
         assert "invalid_adapter" in data["error"]["message"]
 
 
-def test_session_adapter_routing_on_start(client, auth_headers, tmpdir, mock_runner, mock_claude_runner):
+async def test_session_adapter_routing_on_start(
+    api_client, tmpdir, mock_runner, mock_claude_runner
+):
     """Test that sessions route to correct runner on start."""
     test_dir1 = str(tmpdir.mkdir("test_project1"))
     test_dir2 = str(tmpdir.mkdir("test_project2"))
@@ -139,32 +125,28 @@ def test_session_adapter_routing_on_start(client, auth_headers, tmpdir, mock_run
         mock_get_registry.return_value = mock_registry
 
         # Create two sessions with different adapters
-        response1 = client.post(
+        response1 = await api_client.post(
             "/api/sessions",
             json={"directory": test_dir1},
-            headers=auth_headers,
         )
         session1_id = response1.json()["id"]
 
-        response2 = client.post(
+        response2 = await api_client.post(
             "/api/sessions",
             json={"directory": test_dir2, "adapter": "claude_api"},
-            headers=auth_headers,
         )
         session2_id = response2.json()["id"]
 
         # Start both sessions
-        response1_start = client.post(
+        response1_start = await api_client.post(
             f"/api/sessions/{session1_id}/start",
             json={"prompt": "test prompt 1", "approval_choice": 2},
-            headers=auth_headers,
         )
         assert response1_start.status_code == 200
 
-        response2_start = client.post(
+        response2_start = await api_client.post(
             f"/api/sessions/{session2_id}/start",
             json={"prompt": "test prompt 2", "approval_choice": 2},
-            headers=auth_headers,
         )
         assert response2_start.status_code == 200
 
@@ -173,7 +155,9 @@ def test_session_adapter_routing_on_start(client, auth_headers, tmpdir, mock_run
         assert mock_claude_runner.start.called
 
 
-def test_session_adapter_routing_on_input(client, auth_headers, tmpdir, mock_runner):
+async def test_session_adapter_routing_on_input(
+    api_client, fresh_store, tmpdir, mock_runner
+):
     """Test that send_input routes to correct runner."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
@@ -184,30 +168,30 @@ def test_session_adapter_routing_on_input(client, auth_headers, tmpdir, mock_run
         mock_get_registry.return_value = mock_registry
 
         # Create and start session
-        response = client.post(
+        response = await api_client.post(
             "/api/sessions",
-            json={"directory": test_dir, "adapter": "codex_cli"},
-            headers=auth_headers,
+            json={"directory": test_dir, "adapter": "codex_sdk_sidecar"},
         )
         session_id = response.json()["id"]
 
         # Manually set session to AWAITING_INPUT state
-        session = store.get_session(session_id)
+        session = fresh_store.get_session(session_id)
         session.state = SessionState.AWAITING_INPUT
-        store.update_session(session)
+        fresh_store.update_session(session)
 
         # Send input
-        input_response = client.post(
+        input_response = await api_client.post(
             f"/api/sessions/{session_id}/input",
             json={"text": "test input"},
-            headers=auth_headers,
         )
 
         assert input_response.status_code == 200
         assert mock_runner.send_input.called
 
 
-def test_session_adapter_routing_on_interrupt(client, auth_headers, tmpdir, mock_runner):
+async def test_session_adapter_routing_on_interrupt(
+    api_client, fresh_store, tmpdir, mock_runner
+):
     """Test that interrupt routes to correct runner."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
@@ -218,29 +202,29 @@ def test_session_adapter_routing_on_interrupt(client, auth_headers, tmpdir, mock
         mock_get_registry.return_value = mock_registry
 
         # Create session
-        response = client.post(
+        response = await api_client.post(
             "/api/sessions",
-            json={"directory": test_dir, "adapter": "codex_cli"},
-            headers=auth_headers,
+            json={"directory": test_dir, "adapter": "codex_sdk_sidecar"},
         )
         session_id = response.json()["id"]
 
         # Manually set session to RUNNING state
-        session = store.get_session(session_id)
+        session = fresh_store.get_session(session_id)
         session.state = SessionState.RUNNING
-        store.update_session(session)
+        fresh_store.update_session(session)
 
         # Interrupt
-        interrupt_response = client.post(
+        interrupt_response = await api_client.post(
             f"/api/sessions/{session_id}/interrupt",
-            headers=auth_headers,
         )
 
         assert interrupt_response.status_code == 200
         assert mock_runner.stop.called
 
 
-def test_session_adapter_routing_on_approval_mode(client, auth_headers, tmpdir, mock_runner):
+async def test_session_adapter_routing_on_approval_mode(
+    api_client, fresh_store, tmpdir, mock_runner
+):
     """Test that approval mode update routes to correct runner."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
@@ -251,30 +235,30 @@ def test_session_adapter_routing_on_approval_mode(client, auth_headers, tmpdir, 
         mock_get_registry.return_value = mock_registry
 
         # Create session
-        response = client.post(
+        response = await api_client.post(
             "/api/sessions",
-            json={"directory": test_dir, "adapter": "codex_cli"},
-            headers=auth_headers,
+            json={"directory": test_dir, "adapter": "codex_sdk_sidecar"},
         )
         session_id = response.json()["id"]
 
         # Manually set session to RUNNING state
-        session = store.get_session(session_id)
+        session = fresh_store.get_session(session_id)
         session.state = SessionState.RUNNING
-        store.update_session(session)
+        fresh_store.update_session(session)
 
         # Update approval mode
-        approval_response = client.patch(
+        approval_response = await api_client.patch(
             f"/api/sessions/{session_id}/approval-mode",
             json={"approval_mode": 1},
-            headers=auth_headers,
         )
 
         assert approval_response.status_code == 200
         assert mock_runner.update_permission_mode.called
 
 
-def test_backward_compatibility_null_adapter(client, auth_headers, tmpdir, mock_runner):
+async def test_backward_compatibility_null_adapter(
+    api_client, tmpdir, mock_runner
+):
     """Test that NULL adapter field uses default runner."""
     test_dir = str(tmpdir.mkdir("test_project"))
 
@@ -284,18 +268,16 @@ def test_backward_compatibility_null_adapter(client, auth_headers, tmpdir, mock_
         mock_get_registry.return_value = mock_registry
 
         # Create session without adapter (NULL)
-        response = client.post(
+        response = await api_client.post(
             "/api/sessions",
             json={"directory": test_dir},
-            headers=auth_headers,
         )
         session_id = response.json()["id"]
 
         # Start session - should use default runner
-        start_response = client.post(
+        start_response = await api_client.post(
             f"/api/sessions/{session_id}/start",
             json={"prompt": "test", "approval_choice": 2},
-            headers=auth_headers,
         )
 
         assert start_response.status_code == 200

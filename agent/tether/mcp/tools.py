@@ -1,6 +1,6 @@
 """MCP tool definitions and execution.
 
-This module wraps the REST API endpoints as MCP tools, allowing
+This module wraps the internal API endpoints as MCP tools, allowing
 agents like Claude Code to interact with Tether.
 """
 
@@ -120,7 +120,7 @@ def get_tool_definitions() -> list[dict]:
 
 
 async def execute_tool(tool_name: str, arguments: dict) -> dict:
-    """Execute an MCP tool by calling the underlying REST API.
+    """Execute an MCP tool by calling the internal API.
 
     Args:
         tool_name: Name of the tool to execute.
@@ -139,17 +139,13 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
 
     async with httpx.AsyncClient() as client:
         if tool_name == "create_session":
-            # Map MCP arguments to REST API format
             response = await client.post(
-                f"{base_url}/api/external/sessions",
+                f"{base_url}/api/sessions",
                 headers=headers,
                 json={
-                    "agent_metadata": {
-                        "name": arguments["agent_name"],
-                        "type": arguments["agent_type"],
-                        "icon": "🤖",
-                        "workspace": arguments.get("workspace"),
-                    },
+                    "agent_name": arguments["agent_name"],
+                    "agent_type": arguments["agent_type"],
+                    "agent_workspace": arguments.get("workspace"),
                     "session_name": arguments["session_name"],
                     "platform": arguments.get("platform", "telegram"),
                 },
@@ -160,7 +156,7 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
         elif tool_name == "send_output":
             session_id = arguments["session_id"]
             response = await client.post(
-                f"{base_url}/api/external/sessions/{session_id}/events",
+                f"{base_url}/api/sessions/{session_id}/events",
                 headers=headers,
                 json={
                     "type": "output",
@@ -175,16 +171,17 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
         elif tool_name == "request_approval":
             session_id = arguments["session_id"]
             response = await client.post(
-                f"{base_url}/api/external/sessions/{session_id}/events",
+                f"{base_url}/api/sessions/{session_id}/events",
                 headers=headers,
                 json={
-                    "type": "approval_request",
+                    "type": "permission_request",
                     "data": {
-                        "request_id": f"mcp_{arguments['session_id'][:8]}",
-                        "title": arguments["title"],
-                        "description": arguments["description"],
-                        "options": arguments["options"],
-                        "timeout_s": arguments.get("timeout_s", 300),
+                        "tool_name": arguments["title"],
+                        "tool_input": {
+                            "description": arguments["description"],
+                            "options": arguments["options"],
+                            "timeout_s": arguments.get("timeout_s", 300),
+                        },
                     },
                 },
             )
@@ -195,9 +192,12 @@ async def execute_tool(tool_name: str, arguments: dict) -> dict:
             session_id = arguments["session_id"]
             since_seq = arguments.get("since_seq", 0)
             response = await client.get(
-                f"{base_url}/api/external/sessions/{session_id}/events",
+                f"{base_url}/api/sessions/{session_id}/events/poll",
                 headers=headers,
-                params={"since_seq": since_seq},
+                params={
+                    "since_seq": since_seq,
+                    "types": "user_input,permission_resolved",
+                },
             )
             response.raise_for_status()
             return response.json()

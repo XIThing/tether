@@ -1,11 +1,8 @@
-"""Tests for external agent API (WebSocket and REST)."""
+"""Tests for external agent API (converged into /api/sessions)."""
 
 import asyncio
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.websockets import WebSocketDisconnect
 
 from tether.bridges.base import ApprovalRequest, BridgeInterface, HumanInput
 from tether.bridges.manager import BridgeManager
@@ -145,31 +142,6 @@ class TestBridgeManager:
         assert result["thread_id"] == "thread_sess_123"
 
 
-class TestExternalAgentRegistration:
-    """Test agent registration flow."""
-
-    def test_agent_metadata_storage(self, fresh_store: SessionStore) -> None:
-        """Agent metadata is stored on registration."""
-        agent_id = "agent_abc"
-        metadata = {
-            "name": "Test Agent",
-            "type": "test_runner",
-            "icon": "🤖",
-            "workspace": "/path/to/workspace",
-        }
-
-        # Store agent metadata (will be implemented in session store extension)
-        # For now, we'll use a simple dict in runtime
-        runtime = fresh_store._get_runtime(agent_id)
-        runtime.agent_metadata = metadata
-
-        # Retrieve and verify
-        retrieved_metadata = getattr(runtime, "agent_metadata", None)
-        assert retrieved_metadata is not None
-        assert retrieved_metadata["name"] == "Test Agent"
-        assert retrieved_metadata["workspace"] == "/path/to/workspace"
-
-
 class TestApprovalFlow:
     """Test approval request and response flow."""
 
@@ -253,8 +225,7 @@ class TestApprovalFlow:
             future,
         )
 
-        # Simulate timeout (will be handled by approval manager)
-        # For now just test that we can set a timeout result
+        # Simulate timeout
         timeout_result = {"allowed": False, "reason": "timeout"}
         fresh_store.resolve_pending_permission(session.id, "req_1", timeout_result)
 
@@ -308,7 +279,6 @@ class TestExternalAgentSession:
         """Sessions can be bound to a messaging platform."""
         session = fresh_store.create_session("repo_test", "main")
 
-        # Store platform binding (will be implemented as session field)
         session.platform = "telegram"
         session.platform_thread_id = "topic_123"
         fresh_store.update_session(session)
@@ -321,7 +291,6 @@ class TestExternalAgentSession:
         """External agent metadata is stored on session."""
         session = fresh_store.create_session("repo_test", "main")
 
-        # Store external agent info
         session.external_agent_id = "agent_123"
         session.external_agent_name = "Claude Code"
         fresh_store.update_session(session)
@@ -332,7 +301,7 @@ class TestExternalAgentSession:
 
 
 class TestRESTEndpoints:
-    """Test REST API endpoints for external agents."""
+    """Test converged REST API endpoints for external agents."""
 
     @pytest.mark.asyncio
     async def test_health_check(self, api_client) -> None:
@@ -343,22 +312,19 @@ class TestRESTEndpoints:
         assert data["ok"] is True
 
     @pytest.mark.asyncio
-    async def test_create_external_session(self, api_client, fresh_store: SessionStore) -> None:
-        """Can create a session via REST API."""
-        # Register mock bridge
+    async def test_create_session_with_agent_name(self, api_client, fresh_store: SessionStore) -> None:
+        """Can create a session with external agent fields via POST /api/sessions."""
         from tether.bridges.manager import bridge_manager
+
         mock_bridge = MockBridge()
         bridge_manager.register_bridge("mock", mock_bridge)
 
         response = await api_client.post(
-            "/api/external/sessions",
+            "/api/sessions",
             json={
-                "agent_metadata": {
-                    "name": "Test Agent",
-                    "type": "test",
-                    "icon": "🤖",
-                    "workspace": "/path/to/workspace",
-                },
+                "agent_name": "Test Agent",
+                "agent_type": "test",
+                "agent_icon": "T",
                 "session_name": "Test Session",
                 "platform": "mock",
             },
@@ -366,12 +332,103 @@ class TestRESTEndpoints:
 
         assert response.status_code == 201
         data = response.json()
-        assert "session_id" in data
+        assert "id" in data
         assert data["platform"] == "mock"
-        assert "thread_info" in data
+        assert data["external_agent_name"] == "Test Agent"
 
         # Verify session was created with agent metadata
-        session = fresh_store.get_session(data["session_id"])
+        session = fresh_store.get_session(data["id"])
         assert session is not None
         assert session.external_agent_name == "Test Agent"
         assert session.platform == "mock"
+        assert session.repo_id == "external"
+
+    @pytest.mark.asyncio
+    async def test_push_output_event(self, api_client, fresh_store: SessionStore) -> None:
+        """Can push output events via POST /api/sessions/{id}/events."""
+        session = fresh_store.create_session("external", None)
+
+        response = await api_client.post(
+            f"/api/sessions/{session.id}/events",
+            json={
+                "type": "output",
+                "data": {"text": "Hello from agent"},
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+        # Session should have auto-transitioned to RUNNING
+        updated = fresh_store.get_session(session.id)
+        assert updated.state == SessionState.RUNNING
+
+    @pytest.mark.asyncio
+    async def test_push_status_event(self, api_client, fresh_store: SessionStore) -> None:
+        """Can push status events to transition session state."""
+        session = fresh_store.create_session("external", None)
+
+        # First push to get into RUNNING
+        await api_client.post(
+            f"/api/sessions/{session.id}/events",
+            json={"type": "output", "data": {"text": "start"}},
+        )
+
+        # Now push awaiting_input status
+        response = await api_client.post(
+            f"/api/sessions/{session.id}/events",
+            json={"type": "status", "data": {"status": "awaiting_input"}},
+        )
+
+        assert response.status_code == 200
+        updated = fresh_store.get_session(session.id)
+        assert updated.state == SessionState.AWAITING_INPUT
+
+    @pytest.mark.asyncio
+    async def test_push_permission_request(self, api_client, fresh_store: SessionStore) -> None:
+        """Can push permission_request events and poll for resolution."""
+        session = fresh_store.create_session("external", None)
+
+        response = await api_client.post(
+            f"/api/sessions/{session.id}/events",
+            json={
+                "type": "permission_request",
+                "data": {
+                    "request_id": "perm_1",
+                    "tool_name": "file_write",
+                    "tool_input": {"path": "/tmp/test"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Verify permission is pending
+        pending = fresh_store.get_all_pending_permissions(session.id)
+        assert len(pending) == 1
+        assert pending[0].request_id == "perm_1"
+
+    @pytest.mark.asyncio
+    async def test_poll_events(self, api_client, fresh_store: SessionStore) -> None:
+        """Can poll for events via GET /api/sessions/{id}/events/poll."""
+        session = fresh_store.create_session("external", None)
+
+        # Emit a user_input event
+        await fresh_store.emit(session.id, {
+            "session_id": session.id,
+            "ts": fresh_store._now(),
+            "seq": fresh_store.next_seq(session.id),
+            "type": "user_input",
+            "data": {"text": "hello"},
+        })
+
+        response = await api_client.get(
+            f"/api/sessions/{session.id}/events/poll",
+            params={"since_seq": 0},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["events"]) == 1
+        assert data["events"][0]["type"] == "user_input"
+        assert data["events"][0]["data"]["text"] == "hello"

@@ -10,10 +10,18 @@ from fastapi import APIRouter, Depends
 
 from tether.api.deps import require_token
 from tether.api.diff import build_git_diff
-from tether.api.emit import emit_state, emit_user_input, emit_warning
+from tether.api.emit import (
+    emit_error,
+    emit_output,
+    emit_permission_request,
+    emit_state,
+    emit_user_input,
+    emit_warning,
+)
 from tether.api.errors import raise_http_error
 from tether.api.runner_events import get_api_runner, get_runner_registry
 from tether.api.schemas import (
+    AgentEventRequest,
     CreateSessionRequest,
     DiffResponse,
     InputRequest,
@@ -25,6 +33,7 @@ from tether.api.schemas import (
     UpdateApprovalModeRequest,
 )
 from tether.api.state import maybe_set_session_name, now, transition
+from tether.bridges.manager import bridge_manager
 from tether.diff import parse_git_diff
 from tether.discovery.running import is_claude_session_running
 from tether.git import has_git_repository, normalize_directory_path
@@ -64,6 +73,8 @@ async def create_session(
         repo_id=payload.repo_id,
         directory=payload.directory,
         base_ref=payload.base_ref,
+        agent_name=payload.agent_name,
+        platform=payload.platform,
     )
     normalized_directory: str | None = None
     if payload.directory:
@@ -71,7 +82,11 @@ async def create_session(
         if not candidate.is_dir():
             raise_http_error("VALIDATION_ERROR", "directory must be an existing folder", 422)
         normalized_directory = normalize_directory_path(payload.directory)
-    resolved_repo_id = payload.repo_id or normalized_directory or "repo_local"
+    # Default repo_id to "external" for external agents
+    if payload.agent_name and not payload.repo_id and not normalized_directory:
+        resolved_repo_id = "external"
+    else:
+        resolved_repo_id = payload.repo_id or normalized_directory or "repo_local"
     session = store.create_session(repo_id=resolved_repo_id, base_ref=payload.base_ref)
 
     # Validate and store adapter selection
@@ -90,17 +105,53 @@ async def create_session(
                 422
             )
 
+    # Populate external agent metadata if provided
+    if payload.agent_name:
+        import uuid as _uuid
+
+        session.external_agent_id = f"agent_{_uuid.uuid4().hex[:8]}"
+        session.external_agent_name = payload.agent_name
+        session.external_agent_type = payload.agent_type
+        session.external_agent_icon = payload.agent_icon
+        session.external_agent_workspace = payload.agent_workspace
+    if payload.session_name:
+        session.name = payload.session_name
+
+    # Platform binding: create messaging thread
+    if payload.platform:
+        session.platform = payload.platform
+        store.update_session(session)
+        try:
+            thread_info = await bridge_manager.create_thread(
+                session.id, session.name or "New session", platform=payload.platform
+            )
+            session.platform_thread_id = thread_info.get("thread_id")
+        except (ValueError, RuntimeError) as e:
+            store.delete_session(session.id)
+            raise_http_error("VALIDATION_ERROR", str(e), 400)
+
     if normalized_directory:
         session.repo_display = normalized_directory
         store.update_session(session)
         store.set_workdir(session.id, normalized_directory, managed=False)
+    else:
+        store.update_session(session)
     session = store.get_session(session.id) or session
+
+    # Subscribe bridge if platform is bound
+    if session.platform:
+        from tether.bridges.subscriber import bridge_subscriber
+
+        bridge_subscriber.subscribe(session.id, session.platform)
+
     with _session_logging_context(session.id):
         logger.info(
             "Session created",
             repo_id=session.repo_id,
             directory=normalized_directory,
             adapter=session.adapter,
+            agent_name=session.external_agent_name,
+            platform=session.platform,
         )
         return SessionResponse.from_session(session, store)
 
@@ -397,3 +448,110 @@ async def respond_permission(
             allow=payload.allow,
         )
         return OkResponse()
+
+
+@router.post("/sessions/{session_id}/events", response_model=OkResponse)
+async def push_agent_event(
+    session_id: str,
+    payload: AgentEventRequest,
+    _: None = Depends(require_token),
+) -> OkResponse:
+    """Push an event from an external agent through the store event pipeline."""
+    import asyncio
+    import uuid
+
+    with _session_logging_context(session_id):
+        session = store.get_session(session_id)
+        if not session:
+            raise_http_error("NOT_FOUND", "Session not found", 404)
+
+        # Auto-transition CREATED -> RUNNING on first event
+        if session.state == SessionState.CREATED:
+            transition(session, SessionState.RUNNING, started_at=True)
+            await emit_state(session)
+
+        if payload.type == "output":
+            text = payload.data.get("text", "")
+            kind = payload.data.get("kind", "step")
+            is_final = payload.data.get("is_final")
+            await emit_output(session, text, kind=kind, is_final=is_final)
+
+        elif payload.type == "status":
+            status = payload.data.get("status", "")
+            status_map = {
+                "running": SessionState.RUNNING,
+                "awaiting_input": SessionState.AWAITING_INPUT,
+                "done": SessionState.AWAITING_INPUT,
+                "error": SessionState.ERROR,
+            }
+            target_state = status_map.get(status)
+            if target_state and target_state != session.state:
+                ended = target_state in (SessionState.ERROR,)
+                transition(session, target_state, allow_same=True, ended_at=ended)
+                await emit_state(session)
+
+        elif payload.type == "error":
+            code = payload.data.get("code", "AGENT_ERROR")
+            message = payload.data.get("message", "Unknown error")
+            if session.state != SessionState.ERROR:
+                transition(session, SessionState.ERROR, ended_at=True)
+                await emit_state(session)
+            await emit_error(session, code, message)
+
+        elif payload.type == "permission_request":
+            request_id = payload.data.get("request_id") or f"perm_{uuid.uuid4().hex[:8]}"
+            tool_name = payload.data.get("tool_name", "approval")
+            tool_input = payload.data.get("tool_input", payload.data)
+            future = asyncio.get_event_loop().create_future()
+            store.add_pending_permission(
+                session_id, request_id, tool_name, tool_input, future
+            )
+            await emit_permission_request(
+                session,
+                request_id=request_id,
+                tool_name=tool_name,
+                tool_input=tool_input,
+            )
+
+        session.last_activity_at = now()
+        store.update_session(session)
+        logger.info("Agent event processed", event_type=payload.type)
+        return OkResponse()
+
+
+@router.get("/sessions/{session_id}/events/poll")
+async def poll_agent_events(
+    session_id: str,
+    since_seq: int = 0,
+    types: str | None = None,
+    _: None = Depends(require_token),
+) -> dict:
+    """Poll for events relevant to an external agent.
+
+    Args:
+        session_id: Session to poll.
+        since_seq: Only return events after this sequence number.
+        types: Comma-separated event types to filter (e.g. "user_input,permission_resolved").
+    """
+    with _session_logging_context(session_id):
+        session = store.get_session(session_id)
+        if not session:
+            raise_http_error("NOT_FOUND", "Session not found", 404)
+
+        events = store.read_event_log(session_id, since_seq=since_seq)
+
+        # Default to agent-relevant event types
+        type_filter = {"user_input", "permission_resolved"}
+        if types:
+            type_filter = {t.strip() for t in types.split(",")}
+
+        filtered = []
+        for evt in events:
+            if evt.get("type") in type_filter:
+                filtered.append({
+                    "type": evt["type"],
+                    "data": evt.get("data", {}),
+                    "seq": evt.get("seq"),
+                })
+
+        return {"events": filtered}

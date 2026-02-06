@@ -14,7 +14,6 @@ from tether.settings import settings
 if TYPE_CHECKING:
     from tether.runner.claude_api import ClaudeRunner
     from tether.runner.claude_local import ClaudeLocalRunner
-    from tether.runner.codex_cli import CodexCliRunner
     from tether.runner.codex_sdk_sidecar import SidecarRunner
 
 # Cache the runner type after first initialization
@@ -55,7 +54,6 @@ def get_runner(events: RunnerEvents) -> Runner:
         events: RunnerEvents callback sink.
 
     Uses TETHER_AGENT_ADAPTER to select runner. Options:
-        - codex_cli: Legacy Codex CLI runner
         - codex_sdk_sidecar: Codex SDK sidecar
         - claude_api: Claude via Anthropic SDK (requires ANTHROPIC_API_KEY)
         - claude_local: Claude via Agent SDK (uses CLI OAuth)
@@ -65,13 +63,6 @@ def get_runner(events: RunnerEvents) -> Runner:
     """
     global _active_runner_type
     name = settings.adapter()
-
-    if name == "codex_cli":
-        from tether.runner.codex_cli import CodexCliRunner
-
-        runner = CodexCliRunner(events)
-        _active_runner_type = runner.runner_type
-        return runner
 
     if name == "codex_sdk_sidecar":
         from tether.runner.codex_sdk_sidecar import SidecarRunner

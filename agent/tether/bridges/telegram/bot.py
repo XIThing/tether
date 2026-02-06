@@ -75,7 +75,7 @@ class TelegramBridge(BridgeInterface):
         logger.info("Telegram bridge stopped")
 
     async def _handle_message(self, update: Any, context: Any) -> None:
-        """Handle incoming messages from Telegram and forward to event log.
+        """Handle incoming messages from Telegram and forward via internal API.
 
         Args:
             update: Telegram update object.
@@ -98,23 +98,17 @@ class TelegramBridge(BridgeInterface):
             )
             return
 
-        # Import store here to avoid circular import
-        from tether.store import store
-
-        # Emit human_input event
         try:
-            await store.emit(session_id, {
-                "session_id": session_id,
-                "ts": store._now(),
-                "seq": store.next_seq(session_id),
-                "type": "human_input",
-                "data": {
-                    "text": update.message.text,
-                    "username": update.message.from_user.username or "unknown",
-                    "user_id": str(update.message.from_user.id),
-                    "platform": "telegram",
-                },
-            })
+            import httpx
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"http://localhost:{settings.port()}/api/sessions/{session_id}/input",
+                    json={"text": update.message.text},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+
             logger.info(
                 "Forwarded human input from Telegram",
                 session_id=session_id,
@@ -169,17 +163,18 @@ class TelegramBridge(BridgeInterface):
             )
             return
 
-        # Submit approval response via REST API
+        # Submit approval response via internal API
         try:
             import httpx
 
+            allow = option_selected.lower() in ("allow", "yes", "approve")
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"http://localhost:{settings.port()}/api/external/sessions/{session_id}/approvals/{request_id}/respond",
+                    f"http://localhost:{settings.port()}/api/sessions/{session_id}/permission",
                     json={
-                        "option_selected": option_selected,
-                        "username": query.from_user.username or "unknown",
-                        "user_id": str(query.from_user.id),
+                        "request_id": request_id,
+                        "allow": allow,
+                        "message": f"{option_selected} by @{query.from_user.username or 'unknown'}",
                     },
                     timeout=10.0,
                 )

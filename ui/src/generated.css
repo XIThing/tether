@@ -678,10 +678,16 @@ body {
 
 /* Markdown tables */
 
-.message-markdown .markdown-table,
-  .message-thinking-markdown .markdown-table {
+.message-markdown .markdown-table-wrapper,
+  .message-thinking-markdown .markdown-table-wrapper {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.message-markdown .markdown-table,
+  .message-thinking-markdown .markdown-table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
@@ -1153,10 +1159,6 @@ body {
   position: relative;
 }
 
-.sticky {
-  position: sticky;
-}
-
 .inset-0 {
   inset: 0px;
 }
@@ -1223,10 +1225,6 @@ body {
   z-index: 20;
 }
 
-.z-40 {
-  z-index: 40;
-}
-
 .z-50 {
   z-index: 50;
 }
@@ -1265,6 +1263,10 @@ body {
   margin-bottom: 1.5rem;
 }
 
+.mb-\[2px\] {
+  margin-bottom: 2px;
+}
+
 .mt-0\.5 {
   margin-top: 0.125rem;
 }
@@ -1279,6 +1281,10 @@ body {
 
 .mt-2 {
   margin-top: 0.5rem;
+}
+
+.mt-4 {
+  margin-top: 1rem;
 }
 
 .mt-6 {
@@ -1402,8 +1408,12 @@ body {
   height: 100%;
 }
 
-.max-h-32 {
-  max-height: 8rem;
+.max-h-20 {
+  max-height: 5rem;
+}
+
+.max-h-48 {
+  max-height: 12rem;
 }
 
 .max-h-64 {
@@ -1530,6 +1540,10 @@ body {
   flex: 1 1 0%;
 }
 
+.flex-shrink {
+  flex-shrink: 1;
+}
+
 .shrink-0 {
   flex-shrink: 0;
 }
@@ -1600,6 +1614,10 @@ body {
 
 .resize-none {
   resize: none;
+}
+
+.resize {
+  resize: both;
 }
 
 .list-none {
@@ -1739,6 +1757,10 @@ body {
 
 .overflow-y-auto {
   overflow-y: auto;
+}
+
+.overscroll-contain {
+  overscroll-behavior: contain;
 }
 
 .truncate {
@@ -1883,6 +1905,11 @@ body {
   border-top-color: rgb(52 211 153 / var(--tw-border-opacity, 1));
 }
 
+.border-t-emerald-500 {
+  --tw-border-opacity: 1;
+  border-top-color: rgb(16 185 129 / var(--tw-border-opacity, 1));
+}
+
 .bg-amber-400 {
   --tw-bg-opacity: 1;
   background-color: rgb(251 191 36 / var(--tw-bg-opacity, 1));
@@ -2019,6 +2046,11 @@ body {
   background-color: rgb(28 25 23 / 0.8);
 }
 
+.bg-stone-950 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(12 10 9 / var(--tw-bg-opacity, 1));
+}
+
 .bg-stone-950\/40 {
   background-color: rgb(12 10 9 / 0.4);
 }
@@ -2045,6 +2077,11 @@ body {
 
 .bg-violet-500\/20 {
   background-color: rgb(139 92 246 / 0.2);
+}
+
+.bg-zinc-800 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(39 39 42 / var(--tw-bg-opacity, 1));
 }
 
 .p-0 {
@@ -2113,6 +2150,16 @@ body {
 .py-1\.5 {
   padding-top: 0.375rem;
   padding-bottom: 0.375rem;
+}
+
+.py-12 {
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+
+.py-16 {
+  padding-top: 4rem;
+  padding-bottom: 4rem;
 }
 
 .py-2 {
@@ -2387,6 +2434,11 @@ body {
   color: rgb(255 255 255 / var(--tw-text-opacity, 1));
 }
 
+.text-zinc-300 {
+  --tw-text-opacity: 1;
+  color: rgb(212 212 216 / var(--tw-text-opacity, 1));
+}
+
 .underline-offset-4 {
   text-underline-offset: 4px;
 }
@@ -2399,6 +2451,10 @@ body {
 .placeholder-stone-500::placeholder {
   --tw-placeholder-opacity: 1;
   color: rgb(120 113 108 / var(--tw-placeholder-opacity, 1));
+}
+
+.accent-amber-500 {
+  accent-color: #f59e0b;
 }
 
 .opacity-0 {
@@ -2449,11 +2505,6 @@ body {
 
 .filter {
   filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
-}
-
-.backdrop-blur {
-  --tw-backdrop-blur: blur(8px);
-  backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
 }
 
 .transition {
@@ -2560,6 +2611,11 @@ body {
 .hover\:bg-emerald-500:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(16 185 129 / var(--tw-bg-opacity, 1));
+}
+
+.hover\:bg-emerald-700:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(4 120 87 / var(--tw-bg-opacity, 1));
 }
 
 .hover\:bg-primary\/80:hover {
@@ -2688,6 +2744,16 @@ body {
   --tw-scale-x: .95;
   --tw-scale-y: .95;
   transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+
+.active\:bg-stone-600:active {
+  --tw-bg-opacity: 1;
+  background-color: rgb(87 83 78 / var(--tw-bg-opacity, 1));
+}
+
+.active\:bg-stone-700:active {
+  --tw-bg-opacity: 1;
+  background-color: rgb(68 64 60 / var(--tw-bg-opacity, 1));
 }
 
 .disabled\:pointer-events-none:disabled {

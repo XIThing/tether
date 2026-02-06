@@ -1,4 +1,4 @@
-"""Endpoints for discovering external Claude Code and Codex CLI sessions."""
+"""Endpoints for discovering external Claude Code sessions."""
 
 from __future__ import annotations
 
@@ -37,11 +37,11 @@ async def list_external_sessions(
     limit: int = Query(50, ge=1, le=200),
     _: None = Depends(require_token),
 ) -> list[ExternalSessionSummaryResponse]:
-    """List discoverable external sessions from Claude Code and Codex CLI.
+    """List discoverable external sessions from Claude Code.
 
     Args:
         directory: Filter to sessions for this project directory.
-        runner_type: Filter to specific runner type ("claude_code" or "codex_cli").
+        runner_type: Filter to specific runner type ("claude_code").
         limit: Maximum sessions to return.
 
     Returns:
@@ -62,7 +62,7 @@ async def list_external_sessions(
         except ValueError:
             raise_http_error(
                 "VALIDATION_ERROR",
-                f"Invalid runner_type: {runner_type}. Must be 'claude_code' or 'codex_cli'.",
+                f"Invalid runner_type: {runner_type}. Must be 'claude_code'.",
                 422,
             )
 
@@ -103,7 +103,7 @@ async def get_external_session_history(
 
     Args:
         external_id: The external session UUID.
-        runner_type: Which runner created the session ("claude_code" or "codex_cli").
+        runner_type: Which runner created the session ("claude_code").
         limit: Maximum messages to return.
 
     Returns:
@@ -122,7 +122,7 @@ async def get_external_session_history(
     except ValueError:
         raise_http_error(
             "VALIDATION_ERROR",
-            f"Invalid runner_type: {runner_type}. Must be 'claude_code' or 'codex_cli'.",
+            f"Invalid runner_type: {runner_type}. Must be 'claude_code'.",
             422,
         )
 
@@ -164,7 +164,7 @@ async def attach_to_external_session(
 
     Body:
         external_id: The external session UUID to attach to.
-        runner_type: Which runner created the session ("claude_code" or "codex_cli").
+        runner_type: Which runner created the session ("claude_code").
         directory: Working directory for the session.
 
     Returns:
@@ -215,8 +215,6 @@ async def attach_to_external_session(
     # Set runner type based on external session source
     if parsed_runner_type == ExternalRunnerType.CLAUDE_CODE:
         session.runner_type = "claude-local"
-    elif parsed_runner_type == ExternalRunnerType.CODEX_CLI:
-        session.runner_type = "codex_sdk_sidecar"
     else:
         session.runner_type = "claude-local"  # Default fallback
 
@@ -299,10 +297,7 @@ async def sync_external_session(
         )
 
     # Determine external runner type based on session's runner_type
-    if session.runner_type == "codex_sdk_sidecar":
-        runner_type = ExternalRunnerType.CODEX_CLI
-    else:
-        runner_type = ExternalRunnerType.CLAUDE_CODE
+    runner_type = ExternalRunnerType.CLAUDE_CODE
 
     # Fetch fresh history
     detail = get_external_session_detail(
