@@ -293,8 +293,7 @@ class SidecarRunner:
                 "Agent backend is not reachable "
                 f"at {self._base_url} ({exc}). "
                 "If you're using Codex sidecar, start it with: "
-                "docker compose --profile codex up -d codex-sidecar "
-                "(or run: make start-codex)."
+                "make start-codex."
             ) from exc
         finally:
             conn.close()
