@@ -10,12 +10,12 @@ class TestMCPToolDefinitions:
 
     def test_mcp_tools_module_exists(self) -> None:
         """MCP tools module can be imported."""
-        from tether.mcp import tools
+        from tether.mcp_server import tools
         assert tools is not None
 
     def test_create_session_tool_defined(self) -> None:
         """create_session MCP tool is defined."""
-        from tether.mcp.tools import get_tool_definitions
+        from tether.mcp_server.tools import get_tool_definitions
 
         tools = get_tool_definitions()
         tool_names = [t["name"] for t in tools]
@@ -24,7 +24,7 @@ class TestMCPToolDefinitions:
 
     def test_send_output_tool_defined(self) -> None:
         """send_output MCP tool is defined."""
-        from tether.mcp.tools import get_tool_definitions
+        from tether.mcp_server.tools import get_tool_definitions
 
         tools = get_tool_definitions()
         tool_names = [t["name"] for t in tools]
@@ -33,7 +33,7 @@ class TestMCPToolDefinitions:
 
     def test_request_approval_tool_defined(self) -> None:
         """request_approval MCP tool is defined."""
-        from tether.mcp.tools import get_tool_definitions
+        from tether.mcp_server.tools import get_tool_definitions
 
         tools = get_tool_definitions()
         tool_names = [t["name"] for t in tools]
@@ -42,7 +42,7 @@ class TestMCPToolDefinitions:
 
     def test_check_input_tool_defined(self) -> None:
         """check_input MCP tool is defined."""
-        from tether.mcp.tools import get_tool_definitions
+        from tether.mcp_server.tools import get_tool_definitions
 
         tools = get_tool_definitions()
         tool_names = [t["name"] for t in tools]
@@ -53,7 +53,7 @@ class TestMCPToolDefinitions:
 class TestMCPToolExecution:
     """Test MCP tool execution via converged API endpoints."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_create_session_via_api(self, api_client, fresh_store: SessionStore) -> None:
         """MCP create_session maps to POST /api/sessions with agent fields."""
         from tether.bridges.manager import bridge_manager
@@ -78,7 +78,7 @@ class TestMCPToolExecution:
         assert "id" in data
         assert data["external_agent_name"] == "Claude Code"
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_send_output_via_api(self, api_client, fresh_store: SessionStore) -> None:
         """MCP send_output maps to POST /api/sessions/{id}/events."""
         session = fresh_store.create_session("external", None)
@@ -100,11 +100,11 @@ class TestMCPServerIntegration:
 
     def test_mcp_server_module_exists(self) -> None:
         """MCP server module can be imported."""
-        from tether.mcp import server
+        from tether.mcp_server import server
         assert server is not None
 
     def test_mcp_server_has_main_function(self) -> None:
         """MCP server has a main() entry point."""
-        from tether.mcp.server import main
+        from tether.mcp_server.server import main
 
         assert callable(main)
