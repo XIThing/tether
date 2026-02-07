@@ -64,6 +64,8 @@ class TelegramBridge(BridgeInterface):
         self._state.load()
         # Cache full approval descriptions for "Show All" button: request_id → (tool, full_html)
         self._pending_descriptions: dict[str, tuple[str, str]] = {}
+        # Cache original HTML text for approval messages: request_id → html
+        self._approval_html: dict[str, str] = {}
         # Pending "Deny with reason" state: topic_id → (session_id, request_id, username)
         self._pending_deny_reason: dict[int, tuple[str, str, str]] = {}
 
@@ -1044,6 +1046,9 @@ class TelegramBridge(BridgeInterface):
             )
             return
 
+        # Use cached HTML to preserve formatting when editing the message
+        original_html = self._approval_html.get(request_id, query.message.text)
+
         # Handle "Show All" — resend full untruncated description
         if option_selected == "ShowAll":
             cached = self._pending_descriptions.get(request_id)
@@ -1077,7 +1082,8 @@ class TelegramBridge(BridgeInterface):
             if option_selected == "DenyWithReason":
                 self._pending_deny_reason[topic_id] = (session_id, request_id, username)
                 await query.edit_message_text(
-                    text=f"{query.message.text}\n\n✏️ Why? Reply with your reason."
+                    text=f"{original_html}\n\n✏️ Why? Reply with your reason.",
+                    parse_mode="HTML",
                 )
                 return
 
@@ -1108,16 +1114,22 @@ class TelegramBridge(BridgeInterface):
             if ok:
                 if allow:
                     await query.edit_message_text(
-                        text=f"{query.message.text}\n\n✅ {display_option} by {username}"
+                        text=f"{original_html}\n\n✅ {display_option} by {username}",
+                        parse_mode="HTML",
                     )
                 else:
                     await query.edit_message_text(
-                        text=f"{query.message.text}\n\n❌ Denied by {username}"
+                        text=f"{original_html}\n\n❌ Denied by {username}",
+                        parse_mode="HTML",
                     )
             else:
                 await query.edit_message_text(
-                    text=f"{query.message.text}\n\n❌ Error: Failed to submit response"
+                    text=f"{original_html}\n\n❌ Error: Failed to submit response",
+                    parse_mode="HTML",
                 )
+
+            # Clean up cached HTML
+            self._approval_html.pop(request_id, None)
 
             logger.info(
                 "Approval response submitted",
@@ -1134,7 +1146,8 @@ class TelegramBridge(BridgeInterface):
                 request_id=request_id,
             )
             await query.edit_message_text(
-                text=f"{query.message.text}\n\n❌ Error: Failed to submit response"
+                text=f"{original_html}\n\n❌ Error: Failed to submit response",
+                parse_mode="HTML",
             )
 
     # ------------------------------------------------------------------
@@ -1272,6 +1285,7 @@ class TelegramBridge(BridgeInterface):
 
         reply_markup = InlineKeyboardMarkup(rows)
         text = f"⚠️ <b>{tool_name}</b>\n\n{description}"
+        self._approval_html[rid] = text
 
         try:
             await self._app.bot.send_message(
