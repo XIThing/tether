@@ -30,6 +30,7 @@ class StateManager:
         self._path = Path(path)
         self._mappings: dict[str, TopicMapping] = {}
         self._topic_to_session: dict[int, str] = {}
+        self.control_topic_id: int | None = None
 
     def load(self) -> None:
         """Load state from disk."""
@@ -40,6 +41,8 @@ class StateManager:
         try:
             with self._path.open() as f:
                 data = json.load(f)
+
+            self.control_topic_id = data.get("control_topic_id")
 
             mappings_data = data.get("mappings", {})
             for session_id, mapping_data in mappings_data.items():
@@ -59,10 +62,11 @@ class StateManager:
         """Save state to disk."""
         try:
             data = {
+                "control_topic_id": self.control_topic_id,
                 "mappings": {
                     session_id: asdict(mapping)
                     for session_id, mapping in self._mappings.items()
-                }
+                },
             }
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with self._path.open("w") as f:
