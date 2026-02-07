@@ -22,13 +22,19 @@ class ConcreteBridge(BridgeInterface):
         self.approval_calls: list[dict] = []
         self.status_calls: list[dict] = []
 
-    async def on_output(self, session_id: str, text: str, metadata: dict | None = None) -> None:
+    async def on_output(
+        self, session_id: str, text: str, metadata: dict | None = None
+    ) -> None:
         self.output_calls.append({"session_id": session_id, "text": text})
 
-    async def on_approval_request(self, session_id: str, request: ApprovalRequest) -> None:
+    async def on_approval_request(
+        self, session_id: str, request: ApprovalRequest
+    ) -> None:
         self.approval_calls.append({"session_id": session_id, "request": request})
 
-    async def on_status_change(self, session_id: str, status: str, metadata: dict | None = None) -> None:
+    async def on_status_change(
+        self, session_id: str, status: str, metadata: dict | None = None
+    ) -> None:
         self.status_calls.append({"session_id": session_id, "status": status})
 
     async def create_thread(self, session_id: str, session_name: str) -> dict:
@@ -198,7 +204,11 @@ class TestUsageFormatting:
 
     def test_format_large_numbers(self) -> None:
         bridge = ConcreteBridge()
-        usage = {"input_tokens": 1_234_567, "output_tokens": 890_123, "total_cost_usd": 12.5}
+        usage = {
+            "input_tokens": 1_234_567,
+            "output_tokens": 890_123,
+            "total_cost_usd": 12.5,
+        }
         text = bridge._format_usage_text(usage)
         assert "1,234,567" in text
         assert "890,123" in text
@@ -323,3 +333,168 @@ class TestInitState:
         assert bridge._external_view == []
         assert bridge._allow_all_until == {}
         assert bridge._allow_tool_until == {}
+        assert bridge._pending_permissions == {}
+
+
+class TestPendingPermissions:
+    """Test pending permission tracking."""
+
+    def _make_request(self, rid: str = "req_1") -> ApprovalRequest:
+        return ApprovalRequest(
+            request_id=rid,
+            title="Read",
+            description="Read file",
+            options=["Allow", "Deny"],
+        )
+
+    def test_no_pending_by_default(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.get_pending_permission("sess_1") is None
+
+    def test_set_and_get(self) -> None:
+        bridge = ConcreteBridge()
+        req = self._make_request()
+        bridge.set_pending_permission("sess_1", req)
+        assert bridge.get_pending_permission("sess_1") is req
+
+    def test_clear(self) -> None:
+        bridge = ConcreteBridge()
+        bridge.set_pending_permission("sess_1", self._make_request())
+        bridge.clear_pending_permission("sess_1")
+        assert bridge.get_pending_permission("sess_1") is None
+
+    def test_clear_unknown_safe(self) -> None:
+        bridge = ConcreteBridge()
+        bridge.clear_pending_permission("nonexistent")  # should not raise
+
+    def test_session_removed_clears_pending(self) -> None:
+        bridge = ConcreteBridge()
+        bridge.set_pending_permission("sess_1", self._make_request())
+        bridge.on_session_removed("sess_1")
+        assert bridge.get_pending_permission("sess_1") is None
+
+    def test_multiple_sessions(self) -> None:
+        bridge = ConcreteBridge()
+        req1 = self._make_request("req_1")
+        req2 = self._make_request("req_2")
+        bridge.set_pending_permission("sess_1", req1)
+        bridge.set_pending_permission("sess_2", req2)
+        assert bridge.get_pending_permission("sess_1") is req1
+        assert bridge.get_pending_permission("sess_2") is req2
+        bridge.clear_pending_permission("sess_1")
+        assert bridge.get_pending_permission("sess_1") is None
+        assert bridge.get_pending_permission("sess_2") is req2
+
+
+class TestParseApprovalText:
+    """Test parse_approval_text shared helper."""
+
+    def test_allow(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("allow") == {
+            "allow": True,
+            "reason": None,
+            "timer": None,
+        }
+
+    def test_approve(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("approve") == {
+            "allow": True,
+            "reason": None,
+            "timer": None,
+        }
+
+    def test_yes(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("yes") == {
+            "allow": True,
+            "reason": None,
+            "timer": None,
+        }
+
+    def test_deny_bare(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("deny") == {
+            "allow": False,
+            "reason": None,
+            "timer": None,
+        }
+
+    def test_reject(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("reject") == {
+            "allow": False,
+            "reason": None,
+            "timer": None,
+        }
+
+    def test_no(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("no") == {
+            "allow": False,
+            "reason": None,
+            "timer": None,
+        }
+
+    def test_deny_with_colon_reason(self) -> None:
+        bridge = ConcreteBridge()
+        result = bridge.parse_approval_text("deny: use cookies instead")
+        assert result == {
+            "allow": False,
+            "reason": "use cookies instead",
+            "timer": None,
+        }
+
+    def test_deny_with_space_reason(self) -> None:
+        bridge = ConcreteBridge()
+        result = bridge.parse_approval_text("deny bad approach, try again")
+        assert result == {
+            "allow": False,
+            "reason": "bad approach, try again",
+            "timer": None,
+        }
+
+    def test_reject_with_reason(self) -> None:
+        bridge = ConcreteBridge()
+        result = bridge.parse_approval_text("reject: not safe")
+        assert result == {"allow": False, "reason": "not safe", "timer": None}
+
+    def test_allow_all(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("allow all") == {
+            "allow": True,
+            "reason": None,
+            "timer": "all",
+        }
+
+    def test_allow_tool(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("allow Read") == {
+            "allow": True,
+            "reason": None,
+            "timer": "Read",
+        }
+
+    def test_case_insensitive(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("ALLOW")["allow"] is True
+        assert bridge.parse_approval_text("DENY")["allow"] is False
+        assert bridge.parse_approval_text("Allow All")["timer"] == "all"
+
+    def test_non_approval_text_returns_none(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("hello world") is None
+        assert bridge.parse_approval_text("fix the bug") is None
+        assert bridge.parse_approval_text("") is None
+
+    def test_whitespace_handling(self) -> None:
+        bridge = ConcreteBridge()
+        assert bridge.parse_approval_text("  allow  ")["allow"] is True
+        result = bridge.parse_approval_text("  deny:  reason here  ")
+        assert result["reason"] == "reason here"
+
+    def test_deny_colon_empty_reason(self) -> None:
+        bridge = ConcreteBridge()
+        result = bridge.parse_approval_text("deny:")
+        assert result == {"allow": False, "reason": None, "timer": None}
