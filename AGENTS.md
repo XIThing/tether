@@ -1,190 +1,149 @@
 # AI Agent Instructions
 
-This file is the canonical instructions entrypoint for AI agents working in this repository.
+This file is the canonical entrypoint for AI agents working in this repository.
 
-## First Step
+## What is Tether
 
-**Ask the user what they want to do:**
-- Set up and run Tether for personal use
-- Develop on the Tether repository
+Local-first control plane for supervising AI coding agents. Start agents (Claude Code, Codex), monitor progress, review changes, approve actions — from mobile, browser, or messaging platforms (Telegram, Slack, Discord).
 
-If they want to **develop**, direct them to CONTRIBUTING.md and get out of their way.
+## Before You Start
 
-If they want to **set up Tether**, continue with the instructions below.
+### If you're helping a user set up Tether
+
+Guide them through setup:
+1. `make install` to install dependencies
+2. `cp .env.example .env` and configure
+3. `make start` to run (or `make start-codex` for Codex)
+4. `make verify` to check everything works
+5. Open `http://localhost:8787` — see phone access section below
+
+### If you're developing on the codebase
+
+Read the relevant docs below based on what you'll be working on.
 
 ---
 
-## Project Overview
+## Documentation Guide
 
-Tether is a **local-first control plane for supervising AI work**. It lets you start, monitor,
-and guide AI-driven tasks from anywhere (especially your phone), without giving up control,
-visibility, or ownership of your environment.
+### Always read (shared references)
 
-Key principles:
-- **Local-first**: Runs on your machine, no cloud dependency
-- **Human-in-the-loop**: AI is not autonomous; human remains in control
-- **Observable over magical**: Visible logs, explicit diffs, simple primitives
+| Document | What it covers |
+| --- | --- |
+| `background/DATA_MODEL.md` | Session model, states, event types, runtime state |
+| `background/API_REFERENCE.md` | All REST endpoints, SSE event types, auth |
 
-## Prerequisites
+### Read based on what you're working on
 
-- Python 3.10+
-- Node.js 20+
-- Git
+| Area | Document | When to read |
+| --- | --- | --- |
+| Session engine | `background/SESSION_ENGINE.md` | Store, state machine, event pipeline, locking |
+| Bridges | `background/BRIDGES.md` | Telegram/Slack/Discord, subscriber routing, auto-approve |
+| Runners | `background/RUNNERS.md` | Runner protocol, adapters (claude_local, codex, claude_api) |
+| Web UI | `background/WEB_UI.md` | Vue 3 frontend, views, composables, dev server |
+| MCP server | `background/MCP_SERVER.md` | MCP tools, transport, config |
+| Code standards | `background/CODE_STANDARDS.md` | Formatting, typing, logging conventions |
 
-## Setup
+### Historical / product context (optional)
+
+| Document | Purpose |
+| --- | --- |
+| `background/GOAL.md` | Project philosophy and success criteria |
+| `background/ROADMAP.md` | Original development phases |
+| `background/PRODUCT_STATEMENT.md` | Product positioning |
+
+---
+
+## Project Layout
+
+```
+agent/                  # Python backend
+  tether/
+    api/                # FastAPI routes (sessions, events, directories, deps)
+    runner/             # Execution adapters (claude_local, claude_api, codex_*)
+    bridges/            # Messaging bridges (telegram, slack, discord)
+    mcp/                # MCP server (tools, transport)
+    models.py           # Session + event models
+    store.py            # Session store + JSONL event log
+    main.py             # App entrypoint
+  tests/                # pytest test suite
+ui/                     # Vue 3 mobile-first PWA
+  src/
+    views/              # Page components
+    composables/        # Shared logic (useSession, useSSE, etc.)
+background/             # Specs, docs, plans (not runtime code)
+```
+
+---
+
+## Dev Commands
 
 ```bash
-# Clone the repository
-git clone https://github.com/larsderidder/tether.git
-cd tether
-
-# Install dependencies
-make install
-
-# Copy the example config
-cp .env.example .env
+make install            # Install Python + Node dependencies
+make start              # Start agent (Claude adapter)
+make start-codex        # Start agent (Codex adapter)
+make dev                # Start with hot reload (agent + UI)
+make test               # Run pytest
+make verify             # Health check agent + UI
+make lint               # Run Black formatter check
 ```
 
-### Configure .env
-
-1. **Ask the user** which AI model they want to use: **Claude** (default) or **Codex**
-
-2. (Recommended) Generate a secure token and update `.env`:
-   - Set `TETHER_AGENT_TOKEN` to a random value (e.g., `openssl rand -hex 16`)
-   - If user chose Codex, set `TETHER_AGENT_ADAPTER=codex_sdk_sidecar`
-   - **Show the user the token** - it’s needed for the web UI, API requests, and MCP server calls when auth is enabled
-
-3. Start the agent:
-   ```bash
-   # For Claude (default)
-   make start
-
-   # For Codex
-   make start-codex
-   ```
-
-## Verify
-
-Run the verify script (checks both agent API and UI):
+## Running Tests
 
 ```bash
-make verify
+cd agent && python -m pytest tests/ -v          # All tests
+cd agent && python -m pytest tests/test_foo.py  # Single file
 ```
-
-Or manually:
-1. Open http://localhost:8787 in a browser
-2. The Tether UI should load
-
-## Phone Access
-
-To access Tether from a phone on the same network:
-
-1. Find the computer's IP address
-2. Open the firewall port:
-
-   **Linux (firewalld):**
-   ```bash
-   sudo firewall-cmd --add-port=8787/tcp --permanent && sudo firewall-cmd --reload
-   ```
-
-   **Linux (ufw):**
-   ```bash
-   sudo ufw allow 8787/tcp
-   ```
-
-   **macOS:**
-   System Settings > Network > Firewall > Options > Allow incoming connections
-
-3. Open `http://<computer-ip>:8787` on the phone
-
-## Docker Alternative
-
-If the user has trouble with Python/Node dependencies, Docker can be used as a backup:
-
-```bash
-make docker-start
-```
-
-**Important:** The Docker setup requires mapping host directories for the agent to access code repositories. Add volume mounts to `docker-compose.yml`:
-
-```yaml
-services:
-  agent:
-    volumes:
-      - /home/username:/home/username
-```
-
-The native setup (`make start`) is recommended as it has direct file system access.
-
-## Troubleshooting
-
-If `make install` fails:
-- Check Python version: `python --version` (needs 3.10+)
-- Check Node version: `node --version` (needs 20+)
-
-If `make start` fails:
-- Check if port 8787 is in use: `lsof -i :8787`
-- Check the error output for missing dependencies
-
-## Next Steps
-
-Once running, the user can:
-- Access from phone: open `http://<computer-ip>:8787` on the same network
-- See README.md for configuration options
-- See CONTRIBUTING.md for development setup
 
 ---
 
 ## Git Commit Policy
 
-**Follow these rules exactly:**
-
-- Use a **single-line commit message** (no multi-line descriptions)
-- Keep messages concise and descriptive
-- Use **sentence case** (e.g., "Add feature" not "add feature")
+- **Single-line** commit messages (no multi-line body)
+- **Sentence case** (e.g., "Add feature" not "add feature")
+- Concise and descriptive
 
 Examples:
 ```
 Add settings module tests
-Refactor sidecar into modular structure with centralized settings
 Fix token validation in auth middleware
+Refactor bridge subscriber routing
 ```
 
 ## Code Standards
 
-- **Python**: Use Black formatter (`cd agent && python -m black .`)
-- **Type hints**: Keep annotations up to date; prefer modern syntax (`list`, `dict`, `| None`)
-- **Logging**: Use structured logging (structlog) with request identifiers
-- **Docstrings**: Use for non-trivial logic; keep concise
+- **Python**: Black formatter (`cd agent && python -m black .`)
+- **Type hints**: Modern syntax (`list`, `dict`, `str | None`)
+- **Logging**: structlog with request identifiers
+- **Docstrings**: For non-trivial logic; keep concise
 
 See `background/CODE_STANDARDS.md` for full details.
 
-## Architecture
+---
 
-Components:
-- **Agent (Python/FastAPI)**: HTTP API, SSE streaming, static UI hosting
-- **UI (Vue 3)**: Mobile-first interface for session monitoring
-- **Runner**: Execution adapter (Codex CLI, Claude, etc.)
+## Phone Access
 
-See `background/ARCHITECTURE.md` for details.
+To access from a phone on the same network:
+1. Find the computer's IP address
+2. Open firewall port 8787:
+   - **Linux (ufw):** `sudo ufw allow 8787/tcp`
+   - **Linux (firewalld):** `sudo firewall-cmd --add-port=8787/tcp --permanent && sudo firewall-cmd --reload`
+   - **macOS:** System Settings > Network > Firewall > Allow incoming
+3. Open `http://<ip>:8787` on phone
 
-## Key Background Documents
+## Docker Alternative
 
-For more context, see the `background/` directory, especially:
+```bash
+make docker-start
+```
 
-| Document | Purpose |
-| --- | --- |
-| `background/GOAL.md` | Project philosophy and success criteria |
-| `background/ARCHITECTURE.md` | System components and data flow |
-| `background/PROTOCOL.md` | HTTP API and SSE protocol specification |
-| `background/RUNNER_SPEC.md` | Runner contract and event semantics |
-| `background/CODE_STANDARDS.md` | Formatting, typing, logging standards |
-| `background/ROADMAP.md` | Development phases and priorities |
+Map host directories in `docker-compose.yml` for file system access. Native setup (`make start`) is recommended.
+
+---
 
 ## Design Principles
 
-- Local-first
-- Explicit > implicit
-- Observable > automated
-- Simple > clever
-- Human remains in control
+- Local-first — runs on your machine, no cloud
+- Human-in-the-loop — AI is supervised, not autonomous
+- Observable over magical — visible logs, explicit diffs
+- Explicit over implicit
+- Simple over clever
