@@ -75,12 +75,13 @@ const presets = computed(() =>
 )
 
 const canStop = computed(() =>
-  props.sessionState === "RUNNING" || props.sessionState === "AWAITING_INPUT"
+  props.sessionState === "RUNNING" ||
+  props.sessionState === "AWAITING_INPUT" ||
+  props.sessionState === "ERROR"
 )
 
 const canSend = computed(() =>
-  props.sessionState !== "INTERRUPTING" &&
-  props.sessionState !== "ERROR"
+  props.sessionState !== "INTERRUPTING"
 )
 
 const isSessionRunning = computed(() => props.sessionState === "RUNNING")
@@ -88,7 +89,9 @@ const isSessionRunning = computed(() => props.sessionState === "RUNNING")
 const hasPrompt = computed(() => Boolean(prompt.value.trim()))
 
 const canShowPresets = computed(() =>
-  props.sessionState === "RUNNING" || props.sessionState === "AWAITING_INPUT"
+  props.sessionState === "RUNNING" ||
+  props.sessionState === "AWAITING_INPUT" ||
+  props.sessionState === "ERROR"
 )
 
 const handleSend = () => {

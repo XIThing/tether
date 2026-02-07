@@ -70,7 +70,7 @@ export type DirectoryCheck = {
   is_git: boolean;
 };
 
-export type ExternalRunnerType = "claude_code";
+export type ExternalRunnerType = "claude_code" | "codex";
 
 export type ExternalSessionSummary = {
   id: string;

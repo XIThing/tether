@@ -172,7 +172,7 @@
                           >
                             <div class="mb-1 flex items-center gap-2">
                               <span class="text-xs font-medium" :class="msg.role === 'user' ? 'text-emerald-400' : 'text-violet-400'">
-                                {{ msg.role === 'user' ? 'You' : 'Claude' }}
+                                {{ msg.role === 'user' ? 'You' : assistantLabel }}
                               </span>
                               <span v-if="msg.timestamp" class="text-xs text-stone-500">
                                 {{ formatTime(msg.timestamp) }}
@@ -186,24 +186,16 @@
 
                     <!-- Attach button -->
                     <div class="border-t border-stone-800/50 px-3 py-3">
-                      <div v-if="session.runner_type === 'claude_code'">
-                        <p v-if="session.is_running" class="mb-2 text-center text-xs text-amber-400">
-                          Session is currently busy
-                        </p>
-                        <button
-                          class="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
-                          :disabled="attaching"
-                          @click="attachToSession(session)"
-                        >
-                          {{ attaching ? 'Attaching...' : 'Attach' }}
-                        </button>
-                      </div>
-                      <div
-                        v-else
-                        class="rounded-lg bg-stone-800/50 px-3 py-2 text-center text-xs text-stone-500"
+                      <p v-if="session.is_running" class="mb-2 text-center text-xs text-amber-400">
+                        Session is currently busy
+                      </p>
+                      <button
+                        class="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+                        :disabled="attaching"
+                        @click="attachToSession(session)"
                       >
-                        Codex CLI sessions are view-only
-                      </div>
+                        {{ attaching ? 'Attaching...' : 'Attach' }}
+                      </button>
                     </div>
                   </div>
                 </transition>
@@ -263,6 +255,7 @@ const expandedDirectoryGroups = ref(new Set<string>());
 const runnerTypes = [
   { value: "all" as const, label: "All" },
   { value: "claude_code" as const, label: "Claude" },
+  { value: "codex" as const, label: "Codex" },
 ];
 
 // Computed
@@ -317,6 +310,10 @@ const directoryGroups = computed((): DirectoryGroup[] => {
     return bLatest - aLatest;
   });
 });
+
+const assistantLabel = computed(() =>
+  sessionDetail.value?.runner_type === "codex" ? "Codex" : "Claude"
+);
 
 const isDirectoryGroupExpanded = (key: string) => {
   return expandedDirectoryGroups.value.has(key);

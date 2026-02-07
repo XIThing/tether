@@ -29,6 +29,7 @@ export const router = Router();
  * - prompt (optional): Initial prompt to send
  * - approval_choice (optional): 0=ask for approval, 1=partial auto, 2=full auto (no approvals)
  * - workdir (optional): Working directory for file operations
+ * - thread_id (optional): Existing Codex thread ID to resume
  *
  * If a turn is already running, the prompt is queued.
  *
