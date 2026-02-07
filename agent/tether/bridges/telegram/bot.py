@@ -950,13 +950,16 @@ class TelegramBridge(BridgeInterface):
 
         topic_id = update.message.message_thread_id
         if not topic_id:
+            await update.message.reply_text(
+                "💡 Send messages in a session topic to interact with that agent. "
+                "This is the General topic — messages here aren't routed to any session."
+            )
             return
 
         session_id = self._state.get_session_for_topic(topic_id)
         if not session_id:
-            logger.debug(
-                "Received message in topic with no session mapping",
-                topic_id=topic_id,
+            await update.message.reply_text(
+                "⚠️ No active session is linked to this topic."
             )
             return
 
