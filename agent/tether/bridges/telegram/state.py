@@ -90,6 +90,13 @@ class StateManager:
         self._topic_to_session[topic_id] = session_id
         self.save()
 
+    def remove_session(self, session_id: str) -> None:
+        """Remove a session↔topic mapping."""
+        mapping = self._mappings.pop(session_id, None)
+        if mapping:
+            self._topic_to_session.pop(mapping.topic_id, None)
+            self.save()
+
     def get_session_for_topic(self, topic_id: int) -> str | None:
         """Get the session ID for a topic."""
         return self._topic_to_session.get(topic_id)

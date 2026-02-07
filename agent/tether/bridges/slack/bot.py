@@ -2,7 +2,13 @@
 
 import structlog
 
-from tether.bridges.base import ApprovalRequest, BridgeInterface
+from tether.bridges.base import (
+    ApprovalRequest,
+    BridgeInterface,
+    _EXTERNAL_MAX_FETCH,
+    _EXTERNAL_REPLAY_LIMIT,
+    _EXTERNAL_REPLAY_MAX_CHARS,
+)
 from tether.settings import settings
 
 logger = structlog.get_logger(__name__)
@@ -15,34 +21,23 @@ _STATE_EMOJI = {
     "ERROR": "❌",
 }
 
-_EXTERNAL_PAGE_SIZE = 10
-_EXTERNAL_MAX_FETCH = 200
-_EXTERNAL_REPLAY_LIMIT = 10
-_EXTERNAL_REPLAY_MAX_CHARS = 3500
 _SLACK_THREAD_NAME_MAX_LEN = 64
 
 
 class SlackBridge(BridgeInterface):
     """Slack bridge that routes agent events to Slack threads.
 
-    Commands (in main channel): !help, !status, !list, !attach, !stop
+    Commands (in main channel): !help, !status, !list, !attach, !stop, !usage
     Session input: messages in session threads are forwarded as input.
-
-    Args:
-        bot_token: Slack bot token (xoxb-...).
-        channel_id: Slack channel ID.
     """
 
     def __init__(self, bot_token: str, channel_id: str):
+        super().__init__()
         self._bot_token = bot_token
         self._channel_id = channel_id
         self._client: any = None
         self._app: any = None
         self._thread_ts: dict[str, str] = {}  # session_id -> thread_ts
-        self._cached_external: list[dict] = []
-        # Current view of external sessions as presented to the user (may be filtered).
-        self._external_query: str | None = None
-        self._external_view: list[dict] = []
 
     async def start(self) -> None:
         """Initialize Slack client and socket mode."""
@@ -87,16 +82,6 @@ class SlackBridge(BridgeInterface):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _api_headers(self) -> dict[str, str]:
-        headers: dict[str, str] = {}
-        token = settings.token()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        return headers
-
-    def _api_url(self, path: str) -> str:
-        return f"http://localhost:{settings.port()}/api{path}"
-
     def _make_external_thread_name(self, *, directory: str, session_id: str) -> str:
         dir_short = (directory or "").rstrip("/").rsplit("/", 1)[-1] or "session"
         raw_id = (session_id or "").strip()
@@ -109,20 +94,6 @@ class SlackBridge(BridgeInterface):
             else:
                 dir_short = dir_short[: max_dir_len - 3] + "..."
         return f"{dir_short} {suffix}"[:_SLACK_THREAD_NAME_MAX_LEN]
-
-    def _set_external_view(self, query: str | None) -> None:
-        q = (query or "").strip()
-        self._external_query = q or None
-        if not self._cached_external:
-            self._external_view = []
-            return
-        if not q:
-            self._external_view = list(self._cached_external)
-            return
-        q_lower = q.lower()
-        self._external_view = [
-            s for s in self._cached_external if q_lower in str(s.get("directory", "")).lower()
-        ]
 
     async def _send_external_session_replay(
         self, *, thread_ts: str, external_id: str, runner_type: str
@@ -217,8 +188,12 @@ class SlackBridge(BridgeInterface):
 
         thread_ts = event.get("thread_ts")
 
-        # Messages in threads → session input
+        # Messages in threads → session input or thread commands
         if thread_ts:
+            # Check for commands in threads
+            if text.startswith("!"):
+                await self._dispatch_command(event, text)
+                return
             session_id = self._session_for_thread(thread_ts)
             if not session_id:
                 return
@@ -242,8 +217,12 @@ class SlackBridge(BridgeInterface):
             await self._cmd_list(event, args)
         elif cmd == "!attach":
             await self._cmd_attach(event, args)
+        elif cmd == "!new":
+            await self._cmd_new(event, args)
         elif cmd == "!stop":
             await self._cmd_stop(event)
+        elif cmd == "!usage":
+            await self._cmd_usage(event)
         else:
             await self._reply(event, f"Unknown command: {cmd}\nUse !help for available commands.")
 
@@ -257,11 +236,120 @@ class SlackBridge(BridgeInterface):
             "!status — List all sessions\n"
             "!list [page|search] — List external sessions (Claude Code, Codex)\n"
             "!attach <number> — Attach to an external session\n"
+            "!new [agent] [directory] — Start a new session\n"
             "!stop — Interrupt the session in this thread\n"
+            "!usage — Show token usage and cost for this session\n"
             "!help — Show this help\n\n"
             "Send a text message in a session thread to forward it as input."
         )
         await self._reply(event, text)
+
+    @staticmethod
+    def _agent_to_adapter(raw: str) -> str | None:
+        key = (raw or "").strip().lower()
+        if not key:
+            return None
+        aliases = {
+            "claude": "claude_auto",
+            "codex": "codex_sdk_sidecar",
+        }
+        if key in aliases:
+            return aliases[key]
+        if key in {"claude_auto", "claude_local", "claude_api", "codex_sdk_sidecar"}:
+            return key
+        return None
+
+    async def _cmd_new(self, event: dict, args: str) -> None:
+        """Create a new session and Slack thread.
+
+        Usage:
+        - In a session thread:
+          - !new
+          - !new <agent>
+          - !new <directory-name>
+        - In main channel:
+          - !new <agent> <directory>
+          - !new <directory>
+        """
+        parts = (args or "").split()
+        thread_ts = event.get("thread_ts")
+
+        base_session_id: str | None = None
+        base_directory: str | None = None
+        base_adapter: str | None = None
+        if thread_ts:
+            base_session_id = self._session_for_thread(thread_ts)
+        if base_session_id:
+            from tether.store import store
+
+            s = store.get_session(base_session_id)
+            if s:
+                base_directory = s.directory
+                base_adapter = s.adapter
+
+        adapter: str | None = None
+        directory_raw: str | None = None
+
+        if not parts:
+            if not base_directory:
+                await self._reply(
+                    event,
+                    "Usage: !new <agent> <directory>\nOr, inside a session thread: !new or !new <agent>",
+                )
+                return
+            adapter = base_adapter
+            directory_raw = base_directory
+        elif len(parts) == 1:
+            token = parts[0]
+            maybe_adapter = self._agent_to_adapter(token)
+            if base_directory:
+                if maybe_adapter:
+                    adapter = maybe_adapter
+                    directory_raw = base_directory
+                else:
+                    adapter = base_adapter
+                    directory_raw = token
+            else:
+                if maybe_adapter:
+                    await self._reply(event, "Usage: !new <agent> <directory>")
+                    return
+                directory_raw = token
+        else:
+            adapter = self._agent_to_adapter(parts[0])
+            if not adapter:
+                await self._reply(
+                    event,
+                    "Unknown agent. Use: claude, codex, claude_auto, claude_local, claude_api, codex_sdk_sidecar",
+                )
+                return
+            directory_raw = " ".join(parts[1:]).strip()
+
+        try:
+            assert directory_raw is not None
+            directory = await self._resolve_directory_arg(directory_raw, base_directory=base_directory)
+        except Exception as e:
+            await self._reply(event, f"Invalid directory: {e}")
+            return
+
+        dir_short = directory.rstrip("/").rsplit("/", 1)[-1] or "session"
+        agent_label = adapter or "default"
+        session_name = f"{dir_short} ({agent_label})"[:_SLACK_THREAD_NAME_MAX_LEN]
+
+        try:
+            await self._create_session_via_api(
+                directory=directory,
+                platform="slack",
+                adapter=adapter,
+                session_name=session_name,
+            )
+        except Exception as e:
+            await self._reply(event, f"Failed to create session: {e}")
+            return
+
+        await self._reply(
+            event,
+            f"✅ New session created ({agent_label}) in {dir_short}. A new thread should appear in the channel.",
+        )
 
     async def _cmd_status(self, event: dict) -> None:
         import httpx
@@ -447,6 +535,25 @@ class SlackBridge(BridgeInterface):
             logger.exception("Failed to interrupt session")
             await self._reply(event, f"Failed to interrupt: {e}")
 
+    async def _cmd_usage(self, event: dict) -> None:
+        """Show token usage for the session in the current thread."""
+        thread_ts = event.get("thread_ts")
+        if not thread_ts:
+            await self._reply(event, "Use this command inside a session thread.")
+            return
+
+        session_id = self._session_for_thread(thread_ts)
+        if not session_id:
+            await self._reply(event, "No session linked to this thread.")
+            return
+
+        try:
+            usage = await self._fetch_usage(session_id)
+            await self._reply(event, f"📊 {self._format_usage_text(usage)}")
+        except Exception as e:
+            logger.exception("Failed to get usage")
+            await self._reply(event, f"Failed to get usage: {e}")
+
     # ------------------------------------------------------------------
     # Session input forwarding
     # ------------------------------------------------------------------
@@ -455,14 +562,7 @@ class SlackBridge(BridgeInterface):
         import httpx
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self._api_url(f"/sessions/{session_id}/input"),
-                    json={"text": text},
-                    headers=self._api_headers(),
-                    timeout=10.0,
-                )
-                response.raise_for_status()
+            await self._send_input_or_start_via_api(session_id=session_id, text=text)
             logger.info(
                 "Forwarded human input from Slack",
                 session_id=session_id,
@@ -470,61 +570,14 @@ class SlackBridge(BridgeInterface):
             )
         except httpx.HTTPStatusError as e:
             try:
-                error = e.response.json().get("error", {}).get("message", e.response.text)
+                data = e.response.json()
+                msg = (data.get("error") or {}).get("message") or e.response.text
             except Exception:
-                error = e.response.text
-            await self._reply(event, f"Failed to send input: {error}")
+                msg = e.response.text
+            await self._reply(event, f"Failed to send input: {msg}")
         except Exception:
             logger.exception("Failed to forward human input", session_id=session_id)
             await self._reply(event, "Failed to send input.")
-
-    # ------------------------------------------------------------------
-    # Formatting helpers
-    # ------------------------------------------------------------------
-
-    def _format_external_page(self, page: int) -> tuple[str, int, int]:
-        sessions = self._external_view or []
-        if not sessions:
-            if self._external_query:
-                return (
-                    f"No external sessions match directory search: {self._external_query}\n\n"
-                    "Try a different query, or run !list to clear the search.",
-                    1,
-                    1,
-                )
-            return (
-                "No external sessions found.\n\n"
-                "Start a Claude Code or Codex session first, then use !list to see it.",
-                1, 1,
-            )
-
-        total = len(sessions)
-        total_pages = max(1, (total + _EXTERNAL_PAGE_SIZE - 1) // _EXTERNAL_PAGE_SIZE)
-        page = max(1, min(page, total_pages))
-        start = (page - 1) * _EXTERNAL_PAGE_SIZE
-        end = min(start + _EXTERNAL_PAGE_SIZE, total)
-
-        title = f"External Sessions (page {page}/{total_pages})"
-        if self._external_query:
-            title += f" [search: {self._external_query}]"
-        lines: list[str] = [f"{title}:\n"]
-        for idx in range(start, end):
-            s = sessions[idx]
-            n = idx + 1  # index in the current view for !attach
-            runner = s.get("runner_type", "unknown")
-            directory = s.get("directory", "")
-            dir_short = directory.rsplit("/", 1)[-1] if directory else "unknown"
-            running = "🟢" if s.get("is_running") else "⚪"
-            prompt = s.get("first_prompt") or ""
-            prompt_short = (prompt[:40] + "…") if len(prompt) > 40 else prompt
-            lines.append(f"  {n}. {running} {runner} in {dir_short}")
-            if prompt_short:
-                lines.append(f"      {prompt_short}")
-
-        if not self._external_query and len(self._cached_external) == _EXTERNAL_MAX_FETCH:
-            lines.append(f"\nShowing up to {_EXTERNAL_MAX_FETCH} sessions (API limit).")
-        lines.append("\nUse !attach <number> to attach.")
-        return "\n".join(lines), page, total_pages
 
     # ------------------------------------------------------------------
     # Bridge interface (outgoing events)
@@ -559,11 +612,30 @@ class SlackBridge(BridgeInterface):
         if not self._client:
             return
 
+        # Auto-approve if timer is active
+        reason = self.check_auto_approve(session_id, request.title)
+        if reason:
+            await self._auto_approve(session_id, request, reason=reason)
+            thread_ts = self._thread_ts.get(session_id)
+            if thread_ts:
+                try:
+                    await self._client.chat_postMessage(
+                        channel=self._channel_id,
+                        thread_ts=thread_ts,
+                        text=f"✅ *{request.title}* — auto-approved ({reason})",
+                    )
+                except Exception:
+                    pass
+            return
+
         thread_ts = self._thread_ts.get(session_id)
         if not thread_ts:
             return
 
-        text = f"*Approval Required*\n\n{request.title}\n\n{request.description}\n\nReply with `allow` or `deny`."
+        text = (
+            f"*⚠️ Approval Required*\n\n*{request.title}*\n\n{request.description}\n\n"
+            "Reply with `allow`, `deny`, `allow all`, or `allow {tool}`."
+        )
         try:
             await self._client.chat_postMessage(
                 channel=self._channel_id,

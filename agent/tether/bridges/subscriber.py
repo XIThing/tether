@@ -35,12 +35,18 @@ class BridgeSubscriber:
             platform=platform,
         )
 
-    def unsubscribe(self, session_id: str) -> None:
-        """Stop consuming events for a session."""
+    def unsubscribe(self, session_id: str, *, platform: str | None = None) -> None:
+        """Stop consuming events for a session and clean up bridge state."""
         task = self._tasks.pop(session_id, None)
         if task:
             task.cancel()
             logger.info("Bridge subscriber stopped", session_id=session_id)
+
+        # Notify bridge so it can clean up mappings
+        if platform:
+            bridge = bridge_manager.get_bridge(platform)
+            if bridge:
+                bridge.on_session_removed(session_id)
 
     async def _consume(self, session_id: str, platform: str) -> None:
         """Background task that reads from a store subscriber and routes events."""
@@ -95,9 +101,7 @@ class BridgeSubscriber:
                     elif event_type == "session_state":
                         state = data.get("state", "")
                         if state == "RUNNING":
-                            # Show typing indicator instead of a message
-                            if hasattr(bridge, "on_typing"):
-                                await bridge.on_typing(session_id)
+                            await bridge.on_typing(session_id)
                         elif state == "ERROR":
                             await bridge.on_status_change(session_id, "error")
                         # AWAITING_INPUT ("done") — no message needed

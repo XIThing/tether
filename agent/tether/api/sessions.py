@@ -185,12 +185,21 @@ async def delete_session(session_id: str, _: None = Depends(require_token)) -> O
         if session.platform:
             from tether.bridges.subscriber import bridge_subscriber
 
-            bridge_subscriber.unsubscribe(session_id)
+            bridge_subscriber.unsubscribe(session_id, platform=session.platform)
 
         store.delete_session(session_id)
         remove_session_lock(session_id)
         logger.info("Session deleted")
         return OkResponse()
+
+
+@router.get("/sessions/{session_id}/usage")
+async def session_usage(session_id: str, _: None = Depends(require_token)) -> dict:
+    """Get aggregated token and cost usage for a session."""
+    session = store.get_session(session_id)
+    if not session:
+        raise_http_error("NOT_FOUND", "Session not found", 404)
+    return store.session_usage(session_id)
 
 
 @router.post("/sessions/{session_id}/start", response_model=SessionResponse)

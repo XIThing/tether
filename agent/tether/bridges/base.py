@@ -4,10 +4,22 @@ Bridges handle routing agent output to messaging platforms like Telegram, Slack,
 Each bridge implements platform-specific message formatting and API interactions.
 """
 
+from __future__ import annotations
+
+import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from tether.settings import settings
+
+_EXTERNAL_PAGE_SIZE = 10
+_EXTERNAL_MAX_FETCH = 200
+_EXTERNAL_REPLAY_LIMIT = 10
+_EXTERNAL_REPLAY_MAX_CHARS = 3500
+_ALLOW_ALL_DURATION_S = 30 * 60  # 30 minutes
 
 
 class ApprovalRequest(BaseModel):
@@ -43,55 +55,363 @@ class BridgeInterface(ABC):
 
     Each platform (Telegram, Slack, Discord) implements this interface to handle
     platform-specific formatting and API calls.
+
+    Provides shared helpers for API access, external session management,
+    auto-approval timers, and pagination.
     """
+
+    def __init__(self) -> None:
+        # External session cache and pagination
+        self._cached_external: list[dict] = []
+        self._external_query: str | None = None
+        self._external_view: list[dict] = []
+        # Auto-approve timers: session_id → expiry timestamp
+        self._allow_all_until: dict[str, float] = {}
+        self._allow_tool_until: dict[str, dict[str, float]] = {}
+
+    # ------------------------------------------------------------------
+    # API helpers (shared across all bridges)
+    # ------------------------------------------------------------------
+
+    def _api_headers(self) -> dict[str, str]:
+        """Build auth headers for internal API calls."""
+        headers: dict[str, str] = {}
+        token = settings.token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _api_url(self, path: str) -> str:
+        """Build a localhost API URL."""
+        return f"http://localhost:{settings.port()}/api{path}"
+
+    async def _create_session_via_api(
+        self,
+        *,
+        directory: str,
+        platform: str,
+        adapter: str | None = None,
+        session_name: str | None = None,
+    ) -> dict:
+        """Create a new Tether session via the internal API.
+
+        Returns the raw SessionResponse JSON payload.
+        """
+        import httpx
+
+        payload: dict[str, Any] = {
+            "directory": directory,
+            "platform": platform,
+        }
+        if adapter:
+            payload["adapter"] = adapter
+        if session_name:
+            payload["session_name"] = session_name
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self._api_url("/sessions"),
+                json=payload,
+                headers=self._api_headers(),
+                timeout=30.0,
+            )
+            response.raise_for_status()
+        return response.json()
+
+    async def _send_input_or_start_via_api(self, *, session_id: str, text: str) -> None:
+        """Send input; if the session is in CREATED, start it with the input as prompt.
+
+        Bridges generally forward human messages as input. Newly-created sessions
+        are in CREATED and must be started with /start for the first prompt.
+        """
+        import httpx
+
+        async def _post_input() -> None:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    self._api_url(f"/sessions/{session_id}/input"),
+                    json={"text": text},
+                    headers=self._api_headers(),
+                    timeout=30.0,
+                )
+                r.raise_for_status()
+
+        async def _post_start() -> None:
+            async with httpx.AsyncClient() as client:
+                r = await client.post(
+                    self._api_url(f"/sessions/{session_id}/start"),
+                    json={"prompt": text},
+                    headers=self._api_headers(),
+                    timeout=30.0,
+                )
+                r.raise_for_status()
+
+        try:
+            await _post_input()
+            return
+        except httpx.HTTPStatusError as e:
+            # CREATED sessions can't accept /input; promote to /start using the same text.
+            if e.response.status_code != 409:
+                raise
+            try:
+                data = e.response.json()
+            except Exception:
+                data = {}
+            code = (data.get("error") or {}).get("code")
+            if code != "INVALID_STATE":
+                raise
+
+        await _post_start()
+
+    async def _resolve_directory_arg(
+        self,
+        raw: str,
+        *,
+        base_directory: str | None = None,
+    ) -> str:
+        """Resolve a directory argument into a full, existing path.
+
+        Rules:
+        - If raw looks like a path (contains "/" or starts with "~" or "."), use it as-is.
+        - If raw is just a name, resolve relative to:
+          - base_directory's parent, if provided
+          - otherwise the user's home directory
+        - Validate via /api/directories/check and return the normalized path.
+        """
+        import httpx
+
+        raw = (raw or "").strip()
+        if not raw:
+            raise ValueError("directory is required")
+
+        looks_like_path = ("/" in raw) or raw.startswith(("~", ".", "/"))
+        candidates: list[str] = []
+
+        if looks_like_path:
+            candidates.append(raw)
+        else:
+            if base_directory:
+                try:
+                    base_parent = Path(base_directory).expanduser().resolve().parent
+                    candidates.append(str(base_parent / raw))
+                except Exception:
+                    # If base_directory is weird, still fall back to home.
+                    pass
+            candidates.append(str(Path.home() / raw))
+
+        tried: list[str] = []
+        for candidate in candidates:
+            tried.append(candidate)
+            async with httpx.AsyncClient() as client:
+                r = await client.get(
+                    self._api_url("/directories/check"),
+                    params={"path": candidate},
+                    headers=self._api_headers(),
+                    timeout=10.0,
+                )
+                r.raise_for_status()
+            data = r.json()
+            if data.get("exists"):
+                return str(data.get("path") or candidate)
+
+        raise ValueError("Directory not found. Tried: " + ", ".join(tried))
+
+    # ------------------------------------------------------------------
+    # External session pagination (shared across all bridges)
+    # ------------------------------------------------------------------
+
+    def _set_external_view(self, query: str | None) -> None:
+        """Filter cached external sessions by directory substring."""
+        q = (query or "").strip()
+        self._external_query = q or None
+        if not self._cached_external:
+            self._external_view = []
+            return
+        if not q:
+            self._external_view = list(self._cached_external)
+            return
+        q_lower = q.lower()
+        self._external_view = [
+            s for s in self._cached_external
+            if q_lower in str(s.get("directory", "")).lower()
+        ]
+
+    def _format_external_page(
+        self, page: int, *, attach_cmd: str = "!attach", list_cmd: str = "!list"
+    ) -> tuple[str, int, int]:
+        """Format a page of external sessions as text.
+
+        Returns (text, current_page, total_pages).
+        """
+        sessions = self._external_view or []
+        if not sessions:
+            if self._external_query:
+                return (
+                    f"No external sessions match directory search: {self._external_query}\n\n"
+                    f"Try a different query, or run {list_cmd} to clear the search.",
+                    1,
+                    1,
+                )
+            return (
+                "No external sessions found.\n\n"
+                f"Start a Claude Code or Codex session first, then use {list_cmd} to see it.",
+                1,
+                1,
+            )
+
+        total = len(sessions)
+        total_pages = max(1, (total + _EXTERNAL_PAGE_SIZE - 1) // _EXTERNAL_PAGE_SIZE)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * _EXTERNAL_PAGE_SIZE
+        end = min(start + _EXTERNAL_PAGE_SIZE, total)
+
+        title = f"External Sessions (page {page}/{total_pages})"
+        if self._external_query:
+            title += f" [search: {self._external_query}]"
+        lines: list[str] = [f"{title}:\n"]
+        for idx in range(start, end):
+            s = sessions[idx]
+            n = idx + 1
+            runner = s.get("runner_type", "unknown")
+            directory = s.get("directory", "")
+            dir_short = directory.rsplit("/", 1)[-1] if directory else "unknown"
+            running = "🟢" if s.get("is_running") else "⚪"
+            prompt = s.get("first_prompt") or ""
+            prompt_short = (prompt[:40] + "…") if len(prompt) > 40 else prompt
+            lines.append(f"  {n}. {running} {runner} in {dir_short}")
+            if prompt_short:
+                lines.append(f"      {prompt_short}")
+
+        if not self._external_query and len(self._cached_external) == _EXTERNAL_MAX_FETCH:
+            lines.append(f"\nShowing up to {_EXTERNAL_MAX_FETCH} sessions (API limit).")
+        lines.append(f"\nUse {attach_cmd} <number> to attach.")
+        return "\n".join(lines), page, total_pages
+
+    # ------------------------------------------------------------------
+    # Auto-approve logic (shared across all bridges)
+    # ------------------------------------------------------------------
+
+    def check_auto_approve(self, session_id: str, tool_name: str) -> str | None:
+        """Check if an approval request should be auto-approved.
+
+        Returns the reason string if auto-approved, or None.
+        """
+        now = time.time()
+        if now < self._allow_all_until.get(session_id, 0):
+            return "Allow All"
+        tool_expiry = self._allow_tool_until.get(session_id, {}).get(tool_name, 0)
+        if now < tool_expiry:
+            return f"Allow {tool_name}"
+        return None
+
+    def set_allow_all(self, session_id: str) -> None:
+        """Enable auto-approve for all tools for 30 minutes."""
+        self._allow_all_until[session_id] = time.time() + _ALLOW_ALL_DURATION_S
+
+    def set_allow_tool(self, session_id: str, tool_name: str) -> None:
+        """Enable auto-approve for a specific tool for 30 minutes."""
+        self._allow_tool_until.setdefault(session_id, {})[tool_name] = (
+            time.time() + _ALLOW_ALL_DURATION_S
+        )
+
+    async def _auto_approve(
+        self, session_id: str, request: ApprovalRequest, *, reason: str = "Allow All"
+    ) -> None:
+        """Silently approve a permission request via the API."""
+        import httpx
+        import structlog
+
+        logger = structlog.get_logger(__name__)
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    self._api_url(f"/sessions/{session_id}/permission"),
+                    json={
+                        "request_id": request.request_id,
+                        "allow": True,
+                        "message": f"Auto-approved ({reason} active)",
+                    },
+                    headers=self._api_headers(),
+                    timeout=10.0,
+                )
+            logger.info("Auto-approved via %s", reason, session_id=session_id, request_id=request.request_id)
+        except Exception:
+            logger.exception("Failed to auto-approve", request_id=request.request_id)
+
+    # ------------------------------------------------------------------
+    # Usage helper
+    # ------------------------------------------------------------------
+
+    async def _fetch_usage(self, session_id: str) -> dict:
+        """Fetch token/cost usage for a session from the API."""
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                self._api_url(f"/sessions/{session_id}/usage"),
+                headers=self._api_headers(),
+                timeout=10.0,
+            )
+            response.raise_for_status()
+        return response.json()
+
+    def _format_usage_text(self, usage: dict) -> str:
+        """Format usage dict as plain text."""
+        input_t = usage.get("input_tokens", 0)
+        output_t = usage.get("output_tokens", 0)
+        cost = usage.get("total_cost_usd", 0.0)
+
+        lines = [
+            "Session Usage",
+            "",
+            f"Input tokens:  {input_t:,}",
+            f"Output tokens: {output_t:,}",
+            f"Total tokens:  {input_t + output_t:,}",
+        ]
+        if cost > 0:
+            lines.append(f"Cost: ${cost:.4f}")
+        else:
+            lines.append("Cost: not tracked")
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Optional lifecycle hooks (override as needed)
+    # ------------------------------------------------------------------
+
+    async def on_typing(self, session_id: str) -> None:
+        """Show a typing indicator. Override if platform supports it."""
+
+    def on_session_removed(self, session_id: str) -> None:
+        """Clean up when a session is deleted."""
+        self._allow_all_until.pop(session_id, None)
+        self._allow_tool_until.pop(session_id, None)
+
+    # ------------------------------------------------------------------
+    # Required interface methods
+    # ------------------------------------------------------------------
 
     @abstractmethod
     async def on_output(
         self, session_id: str, text: str, metadata: dict | None = None
     ) -> None:
-        """Handle agent output text.
-
-        Args:
-            session_id: Internal Tether session ID.
-            text: Output text (markdown format).
-            metadata: Optional metadata about the output.
-        """
+        """Handle agent output text."""
         pass
 
     @abstractmethod
     async def on_approval_request(
         self, session_id: str, request: ApprovalRequest
     ) -> None:
-        """Handle an approval request.
-
-        Args:
-            session_id: Internal Tether session ID.
-            request: Approval request details.
-        """
+        """Handle an approval request."""
         pass
 
     @abstractmethod
     async def on_status_change(
         self, session_id: str, status: str, metadata: dict | None = None
     ) -> None:
-        """Handle agent status change.
-
-        Args:
-            session_id: Internal Tether session ID.
-            status: New status (e.g., "thinking", "executing", "done", "error").
-            metadata: Optional metadata about the status.
-        """
+        """Handle agent status change."""
         pass
 
     @abstractmethod
     async def create_thread(self, session_id: str, session_name: str) -> dict:
-        """Create a messaging thread for a new session.
-
-        Args:
-            session_id: Internal Tether session ID.
-            session_name: Display name for the session.
-
-        Returns:
-            Dict with platform-specific thread info (thread_id, platform, etc.).
-        """
+        """Create a messaging thread for a new session."""
         pass

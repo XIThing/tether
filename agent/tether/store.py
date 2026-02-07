@@ -759,4 +759,46 @@ class SessionStore:
         return events
 
 
+    def session_usage(self, session_id: str) -> dict:
+        """Aggregate token and cost usage from the event log.
+
+        Returns dict with input_tokens, output_tokens, total_cost_usd.
+        """
+        input_tokens = 0
+        output_tokens = 0
+        total_cost = 0.0
+
+        path = os.path.join(self._data_dir, "sessions", session_id, "events.jsonl")
+        if not os.path.exists(path):
+            return {"input_tokens": 0, "output_tokens": 0, "total_cost_usd": 0.0}
+
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") != "metadata":
+                        continue
+                    data = event.get("data", {})
+                    key = data.get("key")
+                    value = data.get("value")
+                    if key == "tokens" and isinstance(value, dict):
+                        input_tokens += int(value.get("input", 0))
+                        output_tokens += int(value.get("output", 0))
+                    elif key == "cost" and isinstance(value, (int, float)):
+                        total_cost += float(value)
+        except OSError:
+            pass
+
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_cost_usd": round(total_cost, 4),
+        }
+
+
 store = SessionStore()

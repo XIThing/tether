@@ -15,14 +15,62 @@ def escape_markdown(text: str) -> str:
     return text
 
 
+def _markdown_table_to_pre(text: str) -> str:
+    """Convert markdown tables to <pre> blocks.
+
+    Finds consecutive lines that look like table rows (start/end with |)
+    and wraps them in <pre>, dropping the separator row (dashes).
+    Must be called AFTER html.escape so content is safe.
+    """
+
+    def _format_table(match: re.Match) -> str:
+        lines = match.group(0).strip().splitlines()
+        rows: list[list[str]] = []
+        for line in lines:
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            # Skip separator rows like |---|---|
+            if all(re.fullmatch(r"-{2,}|:?-+:?", c) for c in cells):
+                continue
+            rows.append(cells)
+        if not rows:
+            return match.group(0)
+        # Compute column widths
+        col_count = max(len(r) for r in rows)
+        widths = [0] * col_count
+        for row in rows:
+            for i, cell in enumerate(row):
+                if i < col_count:
+                    widths[i] = max(widths[i], len(cell))
+        # Format aligned rows
+        formatted: list[str] = []
+        for row in rows:
+            parts = []
+            for i in range(col_count):
+                cell = row[i] if i < len(row) else ""
+                parts.append(cell.ljust(widths[i]))
+            formatted.append("  ".join(parts))
+        return "<pre>" + "\n".join(formatted) + "</pre>"
+
+    # Match consecutive lines that start with |
+    return re.sub(
+        r"(?:^\|.+\|$\n?){2,}",
+        _format_table,
+        text,
+        flags=re.MULTILINE,
+    )
+
+
 def markdown_to_telegram_html(text: str) -> str:
     """Convert common Markdown to Telegram-compatible HTML.
 
-    Handles: code blocks, inline code, bold, italic, links, headers.
+    Handles: code blocks, inline code, bold, italic, links, headers, tables.
     Telegram HTML supports: <b>, <i>, <code>, <pre>, <a href="">.
     """
     # HTML-escape first so we don't corrupt user text
     text = html.escape(text)
+
+    # Tables → <pre> (before code blocks so they don't interfere)
+    text = _markdown_table_to_pre(text)
 
     # Fenced code blocks: ```lang\n...\n``` → <pre>...</pre>
     text = re.sub(
