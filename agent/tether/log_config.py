@@ -9,6 +9,7 @@ import sys
 import structlog
 
 from tether.settings import settings
+from tether.log_redaction import make_log_redactor
 
 
 def _add_uvicorn_access_fields(
@@ -41,11 +42,15 @@ def configure_logging() -> None:
     log_level = getattr(logging, log_level_name, logging.INFO)
     log_format = settings.log_format()
 
+    # Redact secrets from all log events (structlog + stdlib/uvicorn via ProcessorFormatter).
+    redactor = make_log_redactor()
+
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
+        redactor,
     ]
 
     if log_format == "json":
