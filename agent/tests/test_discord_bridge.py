@@ -1,6 +1,6 @@
 """Tests for Discord bridge (Phase 5 PoC)."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -114,8 +114,8 @@ class TestDiscordBridgePoC:
         assert mock_thread.send.called
 
     @pytest.mark.anyio
-    async def test_on_approval_request_not_implemented_in_poc(self, fresh_store: SessionStore) -> None:
-        """Approval requests not implemented in Discord PoC."""
+    async def test_on_approval_request_sends_message(self, fresh_store: SessionStore) -> None:
+        """Approval requests send message to Discord thread."""
         from tether.bridges.discord.bot import DiscordBridge
         from tether.bridges.base import ApprovalRequest
 
@@ -123,17 +123,70 @@ class TestDiscordBridgePoC:
         session.platform = "discord"
         fresh_store.update_session(session)
 
+        mock_client = MagicMock()
+        mock_thread = AsyncMock()
+        mock_client.get_channel.return_value = mock_thread
+
         bridge = DiscordBridge(
             bot_token="discord_bot_token",
             channel_id=1234567890,
         )
+        bridge._client = mock_client
+        bridge._thread_ids[session.id] = 9876543210
 
         request = ApprovalRequest(
             request_id="req_123",
-            title="Test",
-            description="Test",
-            options=["Yes", "No"],
+            title="Read",
+            description="Read config.yaml",
+            options=["Allow", "Deny"],
         )
 
-        # Should not raise, just log warning
         await bridge.on_approval_request(session.id, request)
+
+        assert mock_thread.send.called
+        sent_text = mock_thread.send.call_args.args[0]
+        assert "Approval Required" in sent_text
+        assert "allow all" in sent_text
+
+    @pytest.mark.anyio
+    async def test_on_approval_request_auto_approves(self, fresh_store: SessionStore) -> None:
+        """Approval requests auto-approve when allow-all timer is active."""
+        from tether.bridges.discord.bot import DiscordBridge
+        from tether.bridges.base import ApprovalRequest
+
+        session = fresh_store.create_session("repo_test", "main")
+        session.platform = "discord"
+        fresh_store.update_session(session)
+
+        mock_client = MagicMock()
+        mock_thread = AsyncMock()
+        mock_client.get_channel.return_value = mock_thread
+
+        bridge = DiscordBridge(
+            bot_token="discord_bot_token",
+            channel_id=1234567890,
+        )
+        bridge._client = mock_client
+        bridge._thread_ids[session.id] = 9876543210
+        bridge.set_allow_all(session.id)
+
+        request = ApprovalRequest(
+            request_id="req_123",
+            title="Read",
+            description="Read config.yaml",
+            options=["Allow", "Deny"],
+        )
+
+        with patch("httpx.AsyncClient") as mock_http:
+            mock_http_inst = AsyncMock()
+            mock_http_inst.__aenter__ = AsyncMock(return_value=mock_http_inst)
+            mock_http_inst.__aexit__ = AsyncMock(return_value=False)
+            mock_http.return_value = mock_http_inst
+
+            await bridge.on_approval_request(session.id, request)
+
+        # Should have sent a short notification (not the full approval prompt)
+        assert mock_thread.send.called
+        sent_text = mock_thread.send.call_args.args[0]
+        assert "auto-approved" in sent_text
+        assert "Approval Required" not in sent_text

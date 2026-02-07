@@ -456,7 +456,7 @@ class TestDeleteSessionCleanup:
         response = await api_client.delete(f"/api/sessions/{session_id}")
         assert response.status_code == 200
 
-        mock_unsubscribe.assert_called_once_with(session_id)
+        mock_unsubscribe.assert_called_once_with(session_id, platform="telegram")
 
     @pytest.mark.anyio
     async def test_delete_without_platform_skips_unsubscribe(

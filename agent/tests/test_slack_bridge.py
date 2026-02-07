@@ -1,6 +1,6 @@
 """Tests for Slack bridge (Phase 4 PoC)."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -107,8 +107,8 @@ class TestSlackBridgePoC:
         assert mock_client.chat_postMessage.called
 
     @pytest.mark.anyio
-    async def test_on_approval_request_not_implemented_in_poc(self, fresh_store: SessionStore) -> None:
-        """Approval requests not implemented in Slack PoC."""
+    async def test_on_approval_request_sends_message(self, fresh_store: SessionStore) -> None:
+        """Approval requests send message to Slack thread."""
         from tether.bridges.slack.bot import SlackBridge
         from tether.bridges.base import ApprovalRequest
 
@@ -116,17 +116,66 @@ class TestSlackBridgePoC:
         session.platform = "slack"
         fresh_store.update_session(session)
 
+        mock_client = AsyncMock()
+
         bridge = SlackBridge(
             bot_token="xoxb-test-token",
             channel_id="C01234567",
         )
+        bridge._client = mock_client
+        bridge._thread_ts[session.id] = "1234567890.123456"
 
         request = ApprovalRequest(
             request_id="req_123",
-            title="Test",
-            description="Test",
-            options=["Yes", "No"],
+            title="Read",
+            description="Read config.yaml",
+            options=["Allow", "Deny"],
         )
 
-        # Should not raise, just log warning
         await bridge.on_approval_request(session.id, request)
+
+        assert mock_client.chat_postMessage.called
+        call_kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert "Approval Required" in call_kwargs["text"]
+        assert "allow all" in call_kwargs["text"]
+
+    @pytest.mark.anyio
+    async def test_on_approval_request_auto_approves(self, fresh_store: SessionStore) -> None:
+        """Approval requests auto-approve when allow-all timer is active."""
+        from tether.bridges.slack.bot import SlackBridge
+        from tether.bridges.base import ApprovalRequest
+
+        session = fresh_store.create_session("repo_test", "main")
+        session.platform = "slack"
+        fresh_store.update_session(session)
+
+        mock_client = AsyncMock()
+
+        bridge = SlackBridge(
+            bot_token="xoxb-test-token",
+            channel_id="C01234567",
+        )
+        bridge._client = mock_client
+        bridge._thread_ts[session.id] = "1234567890.123456"
+        bridge.set_allow_all(session.id)
+
+        request = ApprovalRequest(
+            request_id="req_123",
+            title="Read",
+            description="Read config.yaml",
+            options=["Allow", "Deny"],
+        )
+
+        with patch("httpx.AsyncClient") as mock_http:
+            mock_http_inst = AsyncMock()
+            mock_http_inst.__aenter__ = AsyncMock(return_value=mock_http_inst)
+            mock_http_inst.__aexit__ = AsyncMock(return_value=False)
+            mock_http.return_value = mock_http_inst
+
+            await bridge.on_approval_request(session.id, request)
+
+        # Should have sent a short notification (not the full approval prompt)
+        assert mock_client.chat_postMessage.called
+        sent_text = mock_client.chat_postMessage.call_args.kwargs["text"]
+        assert "auto-approved" in sent_text
+        assert "Approval Required" not in sent_text
