@@ -411,8 +411,9 @@ class ClaudeLocalRunner:
                 if hooks:
                     await query_done.wait()
 
+            query_stream = query(prompt=prompt_stream(), options=options)
             try:
-                async for message in query(prompt=prompt_stream(), options=options):
+                async for message in query_stream:
                     # Check for stop request
                     if store.is_stop_requested(session_id):
                         break
@@ -425,8 +426,14 @@ class ClaudeLocalRunner:
                         query_done.set()
                         break
             finally:
-                # Signal the generator to finish so it can be garbage collected
+                # Signal the prompt generator to finish so stdin closes cleanly
                 query_done.set()
+                # Explicitly close the query stream in THIS task to avoid
+                # anyio cancel-scope cross-task RuntimeError during GC.
+                try:
+                    await query_stream.aclose()
+                except (RuntimeError, GeneratorExit):
+                    pass
 
         except asyncio.CancelledError:
             logger.info("Claude query cancelled", session_id=session_id)
@@ -493,6 +500,11 @@ class ClaudeLocalRunner:
         """Handle SystemMessage (init, etc.)."""
         if message.subtype == "init":
             data = message.data
+            logger.debug(
+                "SDK init data",
+                session_id=session_id,
+                init_keys=list(data.keys()),
+            )
             # Store SDK session ID for resume
             sdk_session_id = data.get("session_id")
 
