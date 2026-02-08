@@ -26,6 +26,9 @@ agent/data/
 # Misc
 .DS_Store
 .env
+.mcp.json
+agent/agent/
+tether.log
 docker.env
 .idea
 .run/
