@@ -132,6 +132,35 @@ class TestProcessBookkeeping:
         fresh_store.update_session(session)
         assert fresh_store.get_runner_session_id(session.id) == "runner_123"
 
+    def test_replace_runner_session_id_on_expiry(self, fresh_store: SessionStore) -> None:
+        """replace_runner_session_id updates binding when old session expired."""
+        session = fresh_store.create_session("repo_test", "main")
+        fresh_store.set_runner_session_id(session.id, "old_sdk_123")
+        assert fresh_store.get_runner_session_id(session.id) == "old_sdk_123"
+
+        # SDK expired and created a new session — replace should succeed
+        fresh_store.replace_runner_session_id(session.id, "old_sdk_123", "new_sdk_456")
+        assert fresh_store.get_runner_session_id(session.id) == "new_sdk_456"
+
+    def test_replace_runner_session_id_wrong_old_id(self, fresh_store: SessionStore) -> None:
+        """replace_runner_session_id rejects if old_id doesn't match current."""
+        session = fresh_store.create_session("repo_test", "main")
+        fresh_store.set_runner_session_id(session.id, "current_abc")
+
+        fresh_store.replace_runner_session_id(session.id, "wrong_old", "new_xyz")
+        assert fresh_store.get_runner_session_id(session.id) == "current_abc"
+
+    def test_replace_runner_session_id_not_stolen(self, fresh_store: SessionStore) -> None:
+        """replace_runner_session_id won't steal an ID from another session."""
+        session_a = fresh_store.create_session("repo_a", "main")
+        session_b = fresh_store.create_session("repo_b", "main")
+        fresh_store.set_runner_session_id(session_a.id, "sdk_aaa")
+        fresh_store.set_runner_session_id(session_b.id, "sdk_bbb")
+
+        # Try to replace B's binding with A's SDK session ID
+        fresh_store.replace_runner_session_id(session_b.id, "sdk_bbb", "sdk_aaa")
+        assert fresh_store.get_runner_session_id(session_b.id) == "sdk_bbb"
+
     def test_stop_requested(self, fresh_store: SessionStore) -> None:
         """Stop request flag can be set and checked."""
         session = fresh_store.create_session("repo_test", "main")

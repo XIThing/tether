@@ -444,6 +444,52 @@ class SessionStore:
             session.runner_session_id = None
             self._persist_session(session, allow_runner_session_id_change=True)
 
+    def replace_runner_session_id(
+        self, session_id: str, old_id: str, new_id: str
+    ) -> None:
+        """Replace runner_session_id when the SDK created a new session.
+
+        This is specifically for the case where we asked the SDK to resume
+        session ``old_id`` but it created ``new_id`` instead (e.g. old session
+        expired).  The store binding must be updated so future turns resume
+        the correct session.
+        """
+        session = self._sessions.get(session_id)
+        if not session:
+            return
+
+        if session.runner_session_id != old_id:
+            logger.warning(
+                "replace_runner_session_id: current binding does not match old_id",
+                session_id=session_id,
+                current=session.runner_session_id,
+                old_id=old_id,
+                new_id=new_id,
+            )
+            # If current binding is None, allow setting the new one directly
+            if session.runner_session_id is not None:
+                return
+
+        # Check the new ID isn't already taken by another session
+        existing_session_id = self.find_session_by_runner_session_id(new_id)
+        if existing_session_id and existing_session_id != session_id:
+            logger.warning(
+                "replace_runner_session_id: new_id already belongs to another session",
+                this_session_id=session_id,
+                other_session_id=existing_session_id,
+                new_id=new_id,
+            )
+            return
+
+        logger.info(
+            "Replacing expired runner_session_id",
+            session_id=session_id,
+            old_id=old_id,
+            new_id=new_id,
+        )
+        session.runner_session_id = new_id
+        self._persist_session(session, allow_runner_session_id_change=True)
+
     def find_session_by_runner_session_id(self, runner_session_id: str) -> str | None:
         """Find a Tether session ID that is attached to the given runner session ID.
 
