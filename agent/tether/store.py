@@ -160,6 +160,32 @@ class SessionStore:
 
     def update_session(self, session: Session) -> None:
         """Persist an updated session snapshot."""
+        existing = self._sessions.get(session.id)
+        if existing is not None:
+            # Hard invariant: runner_session_id is immutable once set. This prevents
+            # accidental "takeover" by overwriting the binding via a full-session
+            # update/merge.
+            if existing.runner_session_id is not None:
+                if session.runner_session_id != existing.runner_session_id:
+                    logger.warning(
+                        "Refusing to modify runner_session_id via update_session",
+                        session_id=session.id,
+                        existing=existing.runner_session_id,
+                        attempted=session.runner_session_id,
+                    )
+                    session.runner_session_id = existing.runner_session_id
+            else:
+                # If not set yet, only allow setting it via set_runner_session_id()
+                # or runner_events header capture; update_session shouldn't be used
+                # as a generic setter for this field.
+                if session.runner_session_id is not None:
+                    logger.warning(
+                        "Ignoring runner_session_id set via update_session; use set_runner_session_id",
+                        session_id=session.id,
+                        attempted=session.runner_session_id,
+                    )
+                    session.runner_session_id = None
+
         self._sessions[session.id] = session
         self._persist_session(session)
 
@@ -249,9 +275,30 @@ class SessionStore:
             await queue.put(event)
         self._append_event_log(session_id, event)
 
-    def _persist_session(self, session: Session) -> None:
+    def _persist_session(self, session: Session, *, allow_runner_session_id_change: bool = False) -> None:
         with self._db_lock:
             with get_db_session() as db:
+                # Low-level safety invariant: runner_session_id is immutable once
+                # persisted. This prevents "takeover" via any full-object merge
+                # that happens to carry a cleared/changed value.
+                if not allow_runner_session_id_change:
+                    try:
+                        existing = db.get(Session, session.id)
+                        if existing and existing.runner_session_id is not None:
+                            if session.runner_session_id != existing.runner_session_id:
+                                logger.warning(
+                                    "Refusing to modify persisted runner_session_id",
+                                    session_id=session.id,
+                                    existing=existing.runner_session_id,
+                                    attempted=session.runner_session_id,
+                                )
+                                session.runner_session_id = existing.runner_session_id
+                    except Exception:
+                        # Never fail persistence because the guard couldn't run.
+                        logger.exception(
+                            "Failed runner_session_id immutability check; proceeding",
+                            session_id=session.id,
+                        )
                 db.merge(session)
                 db.commit()
 
@@ -379,12 +426,23 @@ class SessionStore:
         session = self._sessions.get(session_id)
         return session.runner_session_id if session else None
 
-    def clear_runner_session_id(self, session_id: str) -> None:
-        """Clear the runner-specific session id."""
+    def clear_runner_session_id(self, session_id: str, *, force: bool = False) -> None:
+        """Clear the runner-specific session id.
+
+        This is intentionally guarded: clearing a binding makes it possible to
+        accidentally attach a Tether session to a different external session on
+        the next run. Only use with `force=True` in explicit maintenance flows.
+        """
+        if not force:
+            logger.warning(
+                "Refusing to clear runner_session_id without force",
+                session_id=session_id,
+            )
+            return
         session = self._sessions.get(session_id)
         if session:
             session.runner_session_id = None
-            self._persist_session(session)
+            self._persist_session(session, allow_runner_session_id_change=True)
 
     def find_session_by_runner_session_id(self, runner_session_id: str) -> str | None:
         """Find a Tether session ID that is attached to the given runner session ID.

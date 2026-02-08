@@ -114,8 +114,23 @@ class TestProcessBookkeeping:
         fresh_store.set_runner_session_id(session.id, "runner_123")
         assert fresh_store.get_runner_session_id(session.id) == "runner_123"
 
-        fresh_store.clear_runner_session_id(session.id)
+        fresh_store.clear_runner_session_id(session.id, force=True)
         assert fresh_store.get_runner_session_id(session.id) is None
+
+    def test_update_session_cannot_change_runner_session_id(self, fresh_store: SessionStore) -> None:
+        """update_session cannot change or clear runner_session_id once set."""
+        session = fresh_store.create_session("repo_test", "main")
+        fresh_store.set_runner_session_id(session.id, "runner_123")
+
+        # Attempt to clear via full session update.
+        session.runner_session_id = None
+        fresh_store.update_session(session)
+        assert fresh_store.get_runner_session_id(session.id) == "runner_123"
+
+        # Attempt to change to a different value via full session update.
+        session.runner_session_id = "runner_999"
+        fresh_store.update_session(session)
+        assert fresh_store.get_runner_session_id(session.id) == "runner_123"
 
     def test_stop_requested(self, fresh_store: SessionStore) -> None:
         """Stop request flag can be set and checked."""
