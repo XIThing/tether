@@ -86,12 +86,26 @@ class Settings:
     def data_dir() -> str:
         """Directory for persistent data (sessions, logs, database).
 
-        Env: TETHER_AGENT_DATA_DIR (default: agent/data)
+        Env: TETHER_AGENT_DATA_DIR
+
+        Default depends on context:
+            - Source checkout (pyproject.toml exists): ``agent/data/``
+            - Installed package: ``~/.local/share/tether/`` (XDG_DATA_HOME)
         """
         value = _get("TETHER_AGENT_DATA_DIR")
         if value:
             return os.path.abspath(value)
-        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+
+        # Detect source checkout: pyproject.toml lives one level above the package
+        package_parent = os.path.join(os.path.dirname(__file__), "..")
+        if os.path.isfile(os.path.join(package_parent, "pyproject.toml")):
+            return os.path.abspath(os.path.join(package_parent, "data"))
+
+        # Installed package — use XDG data directory
+        from tether.config import data_dir_default
+
+        path = data_dir_default()
+        return str(path)
 
     @staticmethod
     def adapter() -> str:
@@ -126,6 +140,14 @@ class Settings:
         Env: TETHER_AGENT_LOG_FORMAT (default: console)
         """
         return _get("TETHER_AGENT_LOG_FORMAT", default="console").lower()
+
+    @staticmethod
+    def log_file() -> str:
+        """Path to an optional log file. Empty means no file logging.
+
+        Env: TETHER_AGENT_LOG_FILE
+        """
+        return _get("TETHER_AGENT_LOG_FILE")
 
     # -------------------------------------------------------------------------
     # Session Settings

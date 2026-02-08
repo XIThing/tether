@@ -77,28 +77,44 @@ def configure_logging() -> None:
         foreign_pre_chain=shared_processors + [_add_uvicorn_access_fields],
     )
 
+    handlers: dict = {
+        "default": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+            "stream": sys.stdout,
+        }
+    }
+    handler_names = ["default"]
+
+    log_file = settings.log_file()
+    if log_file:
+        import os
+
+        os.makedirs(os.path.dirname(os.path.abspath(log_file)) or ".", exist_ok=True)
+        handlers["file"] = {
+            "class": "logging.FileHandler",
+            "formatter": "default",
+            "filename": log_file,
+            "mode": "a",
+        }
+        handler_names.append("file")
+
     logging.config.dictConfig(
         {
             "version": 1,
             "disable_existing_loggers": False,
             "formatters": {"default": {"()": lambda: formatter}},
-            "handlers": {
-                "default": {
-                    "class": "logging.StreamHandler",
-                    "formatter": "default",
-                    "stream": sys.stdout,
-                }
-            },
-            "root": {"handlers": ["default"], "level": log_level},
+            "handlers": handlers,
+            "root": {"handlers": handler_names, "level": log_level},
             "loggers": {
-                "uvicorn": {"handlers": ["default"], "level": log_level, "propagate": False},
+                "uvicorn": {"handlers": handler_names, "level": log_level, "propagate": False},
                 "uvicorn.error": {
-                    "handlers": ["default"],
+                    "handlers": handler_names,
                     "level": log_level,
                     "propagate": False,
                 },
                 "uvicorn.access": {
-                    "handlers": ["default"],
+                    "handlers": handler_names,
                     "level": log_level,
                     "propagate": False,
                 },

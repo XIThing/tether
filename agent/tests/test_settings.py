@@ -171,3 +171,14 @@ class TestDataDir:
         result = Settings.data_dir()
         assert os.path.isabs(result)
         assert result.endswith("relative/path")
+
+    def test_data_dir_installed_package_default(self, clean_env, tmp_path, monkeypatch) -> None:
+        """When no pyproject.toml exists (installed package), use XDG data dir."""
+        # Point __file__ parent to a directory without pyproject.toml
+        import tether.settings as settings_mod
+
+        monkeypatch.setattr(settings_mod, "__file__", str(tmp_path / "tether" / "settings.py"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+
+        result = Settings.data_dir()
+        assert result == str(tmp_path / "data" / "tether")
