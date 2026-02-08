@@ -34,6 +34,40 @@ def decode_project_path(encoded: str) -> str:
     return "/" + encoded.lstrip("-").replace("-", "/")
 
 
+_SKIP_PROMPT_PREFIXES = (
+    "[Request interrupted",
+    "[Response interrupted",
+    "[Tool result",
+    "<system-",
+)
+
+
+def _extract_user_prompt(content: str | list | None) -> str | None:
+    """Extract the user's actual prompt text from message content.
+
+    Skips tool results, system reminders, and interrupted request markers
+    that Claude Code stores as user-role messages.
+    """
+    if isinstance(content, str):
+        for prefix in _SKIP_PROMPT_PREFIXES:
+            if content.lstrip().startswith(prefix):
+                return None
+        return content.strip() or None
+
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "tool_result":
+                    return None  # entire message is a tool result
+                text = block.get("text")
+                if text:
+                    for prefix in _SKIP_PROMPT_PREFIXES:
+                        if text.lstrip().startswith(prefix):
+                            return None
+                    return text.strip() or None
+    return None
+
+
 def _find_session_file(session_id: str) -> Path | None:
     """Find the JSONL file for a session by scanning all projects."""
     if not PROJECTS_DIR.exists():
@@ -85,20 +119,21 @@ def _parse_session_summary(
 
                 if record_type == "user":
                     message_count += 1
-                    # Extract first prompt
+                    # Extract first prompt (skip tool results and system messages)
                     if first_prompt is None:
                         message = record.get("message", {})
-                        content = message.get("content")
-                        if isinstance(content, str):
-                            first_prompt = content[:200]
-                        elif isinstance(content, list):
-                            # Extract text from content blocks
-                            for block in content:
-                                if isinstance(block, dict):
-                                    text = block.get("text")
-                                    if text:
-                                        first_prompt = text[:200]
-                                        break
+                        # Skip tool_result records — they are user-role but not prompts
+                        if message.get("role") == "user" and any(
+                            isinstance(b, dict) and b.get("type") == "tool_result"
+                            for b in (message.get("content") or [])
+                            if isinstance(message.get("content"), list)
+                        ):
+                            pass  # skip tool_result messages
+                        else:
+                            content = message.get("content")
+                            text = _extract_user_prompt(content)
+                            if text:
+                                first_prompt = text[:200]
 
                 elif record_type == "assistant":
                     message_count += 1
@@ -230,7 +265,9 @@ def get_claude_session_detail(
                     text, _ = _extract_text_content(content, role="user")
                     if text:
                         if first_prompt is None:
-                            first_prompt = text[:200]
+                            candidate = _extract_user_prompt(content)
+                            if candidate:
+                                first_prompt = candidate[:200]
                         messages.append(ExternalSessionMessage(
                             role="user",
                             content=text,
