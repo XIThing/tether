@@ -371,8 +371,8 @@ class TestSessionRebinding:
         assert store.get_runner_session_id(session.id) == "sdk_aaa"
 
     @pytest.mark.anyio
-    async def test_mismatch_rebinds_to_new_session(self, runner, mock_events, monkeypatch):
-        """When SDK returns different session, binding updates to the new one."""
+    async def test_mismatch_does_not_rebind_store(self, runner, mock_events, monkeypatch):
+        """When SDK returns different session, store binding remains immutable."""
         runner, session, store = runner
         store.set_runner_session_id(session.id, "sdk_aaa")
         runner._sdk_sessions[session.id] = "sdk_aaa"
@@ -388,12 +388,13 @@ class TestSessionRebinding:
         await runner.send_input(session.id, "follow-up")
         await runner._tasks[session.id]
 
-        # Both cache and store should reflect the new session
+        # Runner may observe a new SDK session id from the CLI output, but the
+        # persisted store binding must not be overwritten (prevents takeover).
         assert runner._sdk_sessions[session.id] == "sdk_bbb"
-        assert store.get_runner_session_id(session.id) == "sdk_bbb"
+        assert store.get_runner_session_id(session.id) == "sdk_aaa"
 
     @pytest.mark.anyio
-    async def test_mismatch_after_restart_rebinds(self, runner, mock_events, monkeypatch):
+    async def test_mismatch_after_restart_does_not_rebind_store(self, runner, mock_events, monkeypatch):
         """Simulates agent restart: cache empty, store has old ID, SDK returns new."""
         runner, session, store = runner
         # Store has a binding but cache is empty (simulates restart)
@@ -416,9 +417,9 @@ class TestSessionRebinding:
 
         # Should have tried to resume the stored session
         assert resumes_seen == ["sdk_aaa"]
-        # Both should now point to the new session
+        # Runner may cache the SDK-returned id, but store binding must remain.
         assert runner._sdk_sessions[session.id] == "sdk_bbb"
-        assert store.get_runner_session_id(session.id) == "sdk_bbb"
+        assert store.get_runner_session_id(session.id) == "sdk_aaa"
 
     @pytest.mark.anyio
     async def test_subsequent_resume_uses_rebound_session(self, runner, mock_events, monkeypatch):
