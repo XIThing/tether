@@ -15,6 +15,7 @@ import uuid
 
 import structlog
 
+from tether.discovery.running import is_claude_session_running
 from tether.prompts import SYSTEM_PROMPT
 from tether.runner.base import RunnerEvents
 from tether.store import store
@@ -23,6 +24,15 @@ logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL = 5.0
 PERMISSION_TIMEOUT = 300.0
+
+# SDK/CLI cleanup noise that we don't want to spam into tether.log.
+_IGNORED_WORKER_STDERR_SUBSTRINGS: tuple[str, ...] = (
+    "Attempted to exit cancel scope in a different task than it was entered in",
+    "unhandled exception during asyncio.run() shutdown",
+    "Exception ignored in: <function BaseSubprocessTransport.__del__",
+    "RuntimeError: Event loop is closed",
+    "child process pid",
+)
 
 
 class ClaudeSubprocessRunner:
@@ -64,6 +74,7 @@ class ClaudeSubprocessRunner:
             if resume:
                 self._sdk_sessions[session_id] = resume
 
+        resume = self._maybe_drop_busy_resume(session_id, resume)
         await self._spawn(session_id, prompt, cwd, permission_mode, resume)
 
     async def send_input(self, session_id: str, text: str) -> None:
@@ -96,6 +107,7 @@ class ClaudeSubprocessRunner:
             approval_mode = session.approval_mode if session else None
             permission_mode = self._map_permission_mode(approval_mode or 0)
 
+        sdk_session_id = self._maybe_drop_busy_resume(session_id, sdk_session_id)
         await self._spawn(
             session_id, text, cwd, permission_mode, resume=sdk_session_id
         )
@@ -238,6 +250,8 @@ class ClaudeSubprocessRunner:
                     if stderr_data:
                         for line in stderr_data.decode(errors="replace").splitlines():
                             if line.strip():
+                                if any(s in line for s in _IGNORED_WORKER_STDERR_SUBSTRINGS):
+                                    continue
                                 logger.debug("Worker stderr", session_id=session_id, line=line)
                 except (asyncio.TimeoutError, Exception):
                     pass
@@ -481,3 +495,38 @@ class ClaudeSubprocessRunner:
             return "acceptEdits"
         else:
             return "default"
+
+    def _maybe_drop_busy_resume(self, session_id: str, resume: str | None) -> str | None:
+        """If the Claude session is running in another process, don't resume it.
+
+        Resuming a running Claude Code session can fail hard (depending on CLI/SDK
+        state). Starting a new session is more reliable and we can re-bind on
+        the subsequent init event.
+
+        We only drop the resume when the session is genuinely busy in an
+        **external** process.  Our own managed sessions are already guarded by
+        the ``send_input`` queuing logic, so we skip the check when the
+        resume ID belongs to a session we own — this avoids false positives
+        from brief process-cleanup races.
+        """
+        if not resume:
+            return None
+
+        # If we manage this tether session and the subprocess has exited,
+        # the resume is safe — no need to hit ``ps``.
+        proc = self._processes.get(session_id)
+        if proc is not None and proc.returncode is not None:
+            return resume
+
+        try:
+            if is_claude_session_running(resume):
+                logger.warning(
+                    "External Claude session appears busy; starting without resume",
+                    session_id=session_id,
+                    resume=resume,
+                )
+                return None
+        except Exception:
+            # Don't block session progress on best-effort detection.
+            return resume
+        return resume
