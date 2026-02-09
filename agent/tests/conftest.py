@@ -10,6 +10,23 @@ import pytest
 os.environ["TETHER_AGENT_DEV_MODE"] = "1"
 os.environ["TETHER_AGENT_ADAPTER"] = "codex_sdk_sidecar"
 
+# Ensure host machine credentials do not affect test results. These settings are
+# intentionally unprefixed and may exist in a developer/CI environment.
+for k in (
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_FORUM_GROUP_ID",
+    "TELEGRAM_GROUP_ID",
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN",
+    "SLACK_CHANNEL_ID",
+    "DISCORD_BOT_TOKEN",
+    "DISCORD_CHANNEL_ID",
+    "DISCORD_REQUIRE_PAIRING",
+    "DISCORD_PAIRING_CODE",
+    "DISCORD_ALLOWED_USER_IDS",
+):
+    os.environ.pop(k, None)
+
 from tether.main import app
 from tether.store import SessionStore
 
@@ -56,7 +73,14 @@ def fresh_store(temp_data_dir, monkeypatch) -> Generator[SessionStore, None, Non
     monkeypatch.setattr(tether.api.events, "store", new_store)
     monkeypatch.setattr(tether.api.external_sessions, "store", new_store)
     monkeypatch.setattr(tether.api.status, "store", new_store)
+
+    # Bridge registrations are global process state; reset per test to avoid
+    # cross-test leakage.
+    from tether.bridges.manager import bridge_manager
+
+    bridge_manager._bridges.clear()  # noqa: SLF001 (tests need isolation)
     yield new_store
+    bridge_manager._bridges.clear()  # noqa: SLF001 (tests need isolation)
 
 
 @pytest.fixture
