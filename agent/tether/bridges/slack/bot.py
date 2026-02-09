@@ -348,7 +348,7 @@ class SlackBridge(BridgeInterface):
             if not adapter:
                 await self._reply(
                     event,
-                    "Unknown agent. Use: claude, codex, claude_auto, claude_local, claude_api, codex_sdk_sidecar",
+                    "Unknown agent. Use: claude, codex, claude_auto, claude_subprocess, claude_api, codex_sdk_sidecar",
                 )
                 return
             directory_raw = " ".join(parts[1:]).strip()

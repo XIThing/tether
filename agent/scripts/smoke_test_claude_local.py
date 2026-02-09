@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke test for the Claude Local runner (Agent SDK with OAuth).
+"""Smoke test for the Claude subprocess runner (Agent SDK with OAuth).
 
 Tests:
 1. Working directory - create a file, ask model to read it
@@ -18,7 +18,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault("TETHER_AGENT_DEV_MODE", "1")
-os.environ.setdefault("TETHER_AGENT_ADAPTER", "claude_local")
+os.environ.setdefault("TETHER_AGENT_ADAPTER", "claude_subprocess")
 
 try:
     import claude_agent_sdk  # noqa: F401
@@ -91,9 +91,9 @@ async def run_test(tmpdir):
     importlib.reload(store_module)
 
     # Import runner AFTER reloading store so they share the same store instance
-    from tether.runner import claude_local as runner_module
+    from tether.runner import claude_subprocess as runner_module
     importlib.reload(runner_module)
-    runner = runner_module.ClaudeLocalRunner(events)
+    runner = runner_module.ClaudeSubprocessRunner(events)
 
     session = store_module.store.create_session("test", "main")
     session.state = store_module.SessionState.RUNNING
@@ -163,7 +163,7 @@ async def run_test(tmpdir):
 
 def main():
     print("=" * 50)
-    print("Claude Local Runner Smoke Test (Agent SDK)")
+    print("Claude Subprocess Runner Smoke Test (Agent SDK)")
     print("=" * 50)
     print()
 

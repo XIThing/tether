@@ -695,7 +695,7 @@ class TelegramBridge(BridgeInterface):
             adapter = self._agent_to_adapter(args[0])
             if not adapter:
                 await update.message.reply_text(
-                    "Unknown agent. Use: claude, codex, claude_auto, claude_local, claude_api, codex_sdk_sidecar"
+                    "Unknown agent. Use: claude, codex, claude_auto, claude_subprocess, claude_api, codex_sdk_sidecar"
                 )
                 return
             directory_raw = " ".join(args[1:]).strip()

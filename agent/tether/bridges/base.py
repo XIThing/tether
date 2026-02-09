@@ -663,7 +663,7 @@ class BridgeInterface(ABC):
         if key in aliases:
             return aliases[key]
         # Allow explicit adapter names.
-        if key in {"claude_auto", "claude_local", "claude_api", "codex_sdk_sidecar"}:
+        if key in {"claude_auto", "claude_subprocess", "claude_api", "codex_sdk_sidecar"}:
             return key
         return None
 
@@ -672,7 +672,7 @@ class BridgeInterface(ABC):
         """Map an adapter name to a user-friendly label, or None to omit."""
         _labels: dict[str, str] = {
             "claude_auto": "Claude",
-            "claude_local": "Claude",
+            "claude_subprocess": "Claude",
             "claude_api": "Claude API",
             "codex_sdk_sidecar": "Codex",
         }

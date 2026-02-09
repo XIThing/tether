@@ -88,7 +88,7 @@ Set environment variables to configure:
 | Adapter | Description |
 |---------|-------------|
 | `claude_auto` | Auto-detect (prefer OAuth, fallback to API key) |
-| `claude_local` | Claude via local OAuth |
+| `claude_subprocess` | Claude via Agent SDK in subprocess (CLI OAuth) |
 | `claude_api` | Claude via API key (set `ANTHROPIC_API_KEY`) |
 | `codex_sdk_sidecar` | Codex via sidecar |
 

@@ -226,7 +226,7 @@ class TestExternalSessionPagination:
         return [
             {
                 "id": f"ext_{i}",
-                "runner_type": "claude_local",
+                "runner_type": "claude_subprocess",
                 "directory": f"/home/user/project{i}",
                 "is_running": i % 2 == 0,
                 "first_prompt": f"Prompt for session {i}",

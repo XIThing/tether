@@ -518,7 +518,7 @@ class DiscordBridge(BridgeInterface):
             adapter = self._agent_to_adapter(parts[0])
             if not adapter:
                 await message.channel.send(
-                    "Unknown agent. Use: claude, codex, claude_auto, claude_local, claude_api, codex_sdk_sidecar"
+                    "Unknown agent. Use: claude, codex, claude_auto, claude_subprocess, claude_api, codex_sdk_sidecar"
                 )
                 return
             directory_raw = " ".join(parts[1:]).strip()

@@ -116,7 +116,7 @@ class Settings:
         Options:
             - codex_sdk_sidecar: Codex SDK sidecar
             - claude_api: Claude via Anthropic SDK (requires API key)
-            - claude_local: Claude via Agent SDK (CLI OAuth)
+            - claude_subprocess: Claude via Agent SDK in subprocess (CLI OAuth)
             - claude_auto: Auto-detect (prefer OAuth, fallback to API key)
         """
         return _get("TETHER_AGENT_ADAPTER", default="claude_auto").lower()
@@ -189,11 +189,6 @@ class Settings:
         """
         return _get_int("TETHER_AGENT_TURN_TIMEOUT_SECONDS", default=0)
 
-    # -------------------------------------------------------------------------
-    # Codex CLI Runner Settings
-    # -------------------------------------------------------------------------
-
-    @staticmethod
     # -------------------------------------------------------------------------
     # Claude Runner Settings
     # -------------------------------------------------------------------------

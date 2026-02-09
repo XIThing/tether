@@ -13,7 +13,7 @@ from tether.settings import settings
 # Lazy imports - these SDKs are heavy and slow down startup
 if TYPE_CHECKING:
     from tether.runner.claude_api import ClaudeRunner
-    from tether.runner.claude_local import ClaudeLocalRunner
+    from tether.runner.claude_subprocess import ClaudeSubprocessRunner
     from tether.runner.codex_sdk_sidecar import SidecarRunner
 
 # Cache the runner type after first initialization
@@ -56,8 +56,8 @@ def get_runner(events: RunnerEvents) -> Runner:
     Uses TETHER_AGENT_ADAPTER to select runner. Options:
         - codex_sdk_sidecar: Codex SDK sidecar
         - claude_api: Claude via Anthropic SDK (requires ANTHROPIC_API_KEY)
-        - claude_local: Claude via Agent SDK (uses CLI OAuth)
-        - claude_auto: Auto-detect (prefer OAuth, fallback to API key)
+        - claude_subprocess: Claude via Agent SDK in subprocess (uses CLI OAuth)
+        - claude_auto: Auto-detect (prefer subprocess, fallback to API key)
 
     Runners are imported lazily to speed up agent startup.
     """
@@ -78,30 +78,34 @@ def get_runner(events: RunnerEvents) -> Runner:
         _active_runner_type = runner.runner_type
         return runner
 
-    if name == "claude_local":
+    if name == "claude_subprocess":
         try:
-            from tether.runner.claude_local import ClaudeLocalRunner
+            import claude_agent_sdk  # noqa: F401 — verify SDK available
         except ImportError as e:
             raise ValueError(
-                "claude_local adapter requires claude_agent_sdk. "
+                "claude_subprocess adapter requires claude_agent_sdk. "
                 "Install it with: pip install claude-agent-sdk"
             ) from e
 
-        runner = ClaudeLocalRunner(events)
+        from tether.runner.claude_subprocess import ClaudeSubprocessRunner
+
+        runner = ClaudeSubprocessRunner(events)
         _active_runner_type = runner.runner_type
         return runner
 
     if name == "claude_auto":
         # Auto-detect: prefer OAuth (no cost to user), fallback to API key
+        # When SDK is available, prefer subprocess runner for process isolation
         if _has_claude_oauth():
             try:
-                from tether.runner.claude_local import ClaudeLocalRunner
-            except ImportError:
-                pass  # Fall through to API key check
-            else:
-                runner = ClaudeLocalRunner(events)
+                import claude_agent_sdk  # noqa: F401
+                from tether.runner.claude_subprocess import ClaudeSubprocessRunner
+
+                runner = ClaudeSubprocessRunner(events)
                 _active_runner_type = runner.runner_type
                 return runner
+            except ImportError:
+                pass  # Fall through to API key check
         if _has_anthropic_api_key():
             from tether.runner.claude_api import ClaudeRunner
 
