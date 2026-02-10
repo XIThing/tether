@@ -1,7 +1,7 @@
 {
   "name": "tether-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "tailwind:build": "tailwindcss -c tailwind.config.js -i src/index.css -o src/generated.css",
