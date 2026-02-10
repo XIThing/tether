@@ -10,6 +10,14 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 
+# Ensure local `.env` (cwd) and `~/.config/tether/config.env` are applied even when
+# running `python agent/tether/main.py` directly (e.g. via PyCharm).
+#
+# Safe to call multiple times: it never overwrites already-set env vars.
+from tether.config import load_config
+
+load_config()
+
 from tether.api import api_router, root_router
 from tether.middleware import (
     http_exception_handler,
