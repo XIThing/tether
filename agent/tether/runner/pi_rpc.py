@@ -28,8 +28,30 @@ _PERMISSION_TOOLS = {"bash", "write", "edit"}
 
 
 def _find_pi_binary() -> str | None:
-    """Locate the pi binary on PATH."""
-    return shutil.which("pi")
+    """Locate the pi binary on PATH or in common locations."""
+    found = shutil.which("pi")
+    if found:
+        return found
+
+    # Check common nvm/node locations when PATH doesn't include them
+    # (e.g. when Tether is launched from an IDE or systemd)
+    import glob
+
+    candidates = [
+        os.path.expanduser("~/.nvm/versions/node/*/bin/pi"),
+        "/usr/local/bin/pi",
+        "/usr/bin/pi",
+        os.path.expanduser("~/.local/bin/pi"),
+        os.path.expanduser("~/.npm-global/bin/pi"),
+    ]
+    for pattern in candidates:
+        matches = glob.glob(pattern)
+        if matches:
+            # Pick the latest version if multiple nvm versions exist
+            matches.sort(reverse=True)
+            return matches[0]
+
+    return None
 
 
 class PiRpcRunner:
