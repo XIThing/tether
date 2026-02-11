@@ -146,6 +146,7 @@ async def get_external_session_history(
         runner_type=detail.runner_type,
         directory=detail.directory,
         first_prompt=detail.first_prompt,
+        last_prompt=detail.last_prompt,
         last_activity=detail.last_activity,
         message_count=detail.message_count,
         is_running=detail.is_running,
