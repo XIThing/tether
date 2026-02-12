@@ -475,3 +475,79 @@ class TestDiscordBridgePoC:
         await bridge._dispatch_command(mock_message, "!setup 12345678")
         assert bridge._channel_id == 999
         assert 333 in bridge._paired_user_ids
+
+    @pytest.mark.anyio
+    async def test_typing_indicator_starts_and_stops(
+        self, fresh_store: SessionStore
+    ) -> None:
+        """on_typing starts a typing indicator loop, on_typing_stopped cancels it."""
+        from tether.bridges.discord.bot import DiscordBridge
+
+        # Create session with Discord binding
+        session = fresh_store.create_session("repo_test", "main")
+        session.platform = "discord"
+        session.platform_thread_id = "9876543210"
+        fresh_store.update_session(session)
+
+        # Mock Discord client
+        mock_client = MagicMock()
+        mock_thread = AsyncMock()
+        mock_client.get_channel.return_value = mock_thread
+
+        bridge = DiscordBridge(
+            bot_token="discord_bot_token",
+            channel_id=1234567890,
+        )
+        bridge._client = mock_client
+        bridge._thread_ids[session.id] = 9876543210  # Register thread
+
+        # Start typing indicator
+        await bridge.on_typing(session.id)
+        assert session.id in bridge._typing_tasks
+        typing_task = bridge._typing_tasks[session.id]
+        assert not typing_task.done()
+
+        # Stop typing indicator
+        await bridge.on_typing_stopped(session.id)
+        assert session.id not in bridge._typing_tasks
+        
+        # Give the task a moment to cancel
+        import asyncio
+        await asyncio.sleep(0.01)
+        assert typing_task.cancelled() or typing_task.done()
+
+    @pytest.mark.anyio
+    async def test_typing_indicator_calls_discord_api(
+        self, fresh_store: SessionStore
+    ) -> None:
+        """Typing indicator loop calls thread.typing()."""
+        import asyncio
+
+        from tether.bridges.discord.bot import DiscordBridge
+
+        # Create session with Discord binding
+        session = fresh_store.create_session("repo_test", "main")
+
+        # Mock Discord client
+        mock_client = MagicMock()
+        mock_thread = AsyncMock()
+        mock_client.get_channel.return_value = mock_thread
+
+        bridge = DiscordBridge(
+            bot_token="discord_bot_token",
+            channel_id=1234567890,
+        )
+        bridge._client = mock_client
+        bridge._thread_ids[session.id] = 9876543210  # Register thread
+
+        # Start typing indicator
+        await bridge.on_typing(session.id)
+
+        # Wait a bit to let the typing loop run at least once
+        await asyncio.sleep(0.1)
+
+        # Stop typing indicator
+        await bridge.on_typing_stopped(session.id)
+
+        # Verify typing() was called
+        assert mock_thread.typing.called

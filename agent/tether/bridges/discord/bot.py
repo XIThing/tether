@@ -1,5 +1,6 @@
 """Discord bridge implementation with command handling and session threading."""
 
+import asyncio
 from pathlib import Path
 
 import structlog
@@ -48,6 +49,8 @@ class DiscordBridge(BridgeInterface):
         self._pairing_state: DiscordPairingState | None = None
         self._paired_user_ids: set[int] = set()
         self._pairing_code: str | None = None
+        # Background typing indicator loops: session_id → asyncio.Task
+        self._typing_tasks: dict[str, asyncio.Task] = {}
 
         fixed_code = settings.discord_pairing_code() or None
         if self._pairing_required or fixed_code:
@@ -916,6 +919,55 @@ class DiscordBridge(BridgeInterface):
     # Bridge interface (outgoing events)
     # ------------------------------------------------------------------
 
+    async def _typing_loop(self, session_id: str, thread_id: int) -> None:
+        """Send typing indicator every 8s until cancelled.
+        
+        Discord's typing indicator lasts for ~10 seconds, so we refresh
+        it every 8 seconds to maintain a continuous indicator.
+        """
+        try:
+            while True:
+                try:
+                    thread = self._client.get_channel(thread_id)
+                    if thread:
+                        await thread.typing()
+                except Exception:
+                    logger.debug(
+                        "Failed to send Discord typing indicator",
+                        session_id=session_id,
+                        thread_id=thread_id,
+                    )
+                await asyncio.sleep(8)
+        except asyncio.CancelledError:
+            pass
+
+    def _stop_typing(self, session_id: str) -> None:
+        """Cancel the typing indicator task for a session."""
+        task = self._typing_tasks.pop(session_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    async def on_typing(self, session_id: str) -> None:
+        """Start a repeating typing indicator for the session."""
+        if not self._client:
+            return
+
+        thread_id = self._thread_ids.get(session_id)
+        if not thread_id:
+            return
+
+        # Already running for this session
+        if session_id in self._typing_tasks:
+            return
+
+        self._typing_tasks[session_id] = asyncio.create_task(
+            self._typing_loop(session_id, thread_id)
+        )
+
+    async def on_typing_stopped(self, session_id: str) -> None:
+        """Stop the typing indicator for the session."""
+        self._stop_typing(session_id)
+
     async def on_output(
         self, session_id: str, text: str, metadata: dict | None = None
     ) -> None:
@@ -1108,6 +1160,9 @@ class DiscordBridge(BridgeInterface):
             raise RuntimeError(f"Failed to create Discord thread: {e}")
 
     async def on_session_removed(self, session_id: str) -> None:
+        # Stop typing indicator
+        self._stop_typing(session_id)
+        # Clean up thread name tracking
         name = self._thread_names.pop(session_id, None)
         if name:
             self._used_thread_names.discard(name)
