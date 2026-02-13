@@ -118,6 +118,11 @@ def configure_logging() -> None:
                     "level": log_level,
                     "propagate": False,
                 },
+                "discord": {
+                    "handlers": handler_names,
+                    "level": logging.WARNING,
+                    "propagate": False,
+                },
             },
         }
     )
