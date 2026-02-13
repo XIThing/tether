@@ -40,7 +40,9 @@ jobs:
 
       - name: Build package
         working-directory: agent
-        run: python -m build
+        run: |
+          rm -rf dist/
+          python -m build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
