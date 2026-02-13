@@ -256,7 +256,14 @@ async def _attach_external(**kwargs) -> dict:
             headers=_api_headers(),
             timeout=30.0,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Extract the structured error message if available
+            try:
+                body = response.json()
+                msg = body.get("detail", {}).get("error", {}).get("message", "")
+            except Exception:
+                msg = ""
+            raise RuntimeError(msg or f"Attach failed with status {response.status_code}")
     return response.json()
 
 
