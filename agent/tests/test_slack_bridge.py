@@ -4,8 +4,27 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agent_tether.base import BridgeCallbacks
 from tether.bridges.base import BridgeInterface
 from tether.store import SessionStore
+
+
+def _mock_callbacks(**overrides) -> BridgeCallbacks:
+    """Create BridgeCallbacks with all methods mocked."""
+    defaults = dict(
+        create_session=AsyncMock(return_value={}),
+        send_input=AsyncMock(),
+        stop_session=AsyncMock(),
+        respond_to_permission=AsyncMock(return_value=True),
+        list_sessions=AsyncMock(return_value=[]),
+        get_usage=AsyncMock(return_value={}),
+        check_directory=AsyncMock(return_value={"exists": True, "path": "/tmp"}),
+        list_external_sessions=AsyncMock(return_value=[]),
+        get_external_history=AsyncMock(return_value=None),
+        attach_external=AsyncMock(return_value={}),
+    )
+    defaults.update(overrides)
+    return BridgeCallbacks(**defaults)
 
 
 class TestSlackBridgePoC:
@@ -187,10 +206,12 @@ class TestSlackBridgePoC:
         fresh_store.update_session(session)
 
         mock_client = AsyncMock()
+        callbacks = _mock_callbacks()
 
         bridge = SlackBridge(
             bot_token="xoxb-test-token",
             channel_id="C01234567",
+            callbacks=callbacks,
         )
         bridge._client = mock_client
         bridge._thread_ts[session.id] = "1234567890.123456"
@@ -209,26 +230,18 @@ class TestSlackBridgePoC:
             "user": "U123",
         }
 
-        with patch("httpx.AsyncClient") as mock_http:
-            mock_http_inst = AsyncMock()
-            mock_http_inst.__aenter__ = AsyncMock(return_value=mock_http_inst)
-            mock_http_inst.__aexit__ = AsyncMock(return_value=False)
-            mock_http_inst.post.return_value = MagicMock(
-                status_code=200, raise_for_status=MagicMock()
-            )
-            mock_http.return_value = mock_http_inst
+        await bridge._forward_input(
+            event, session.id, "deny: use cookies instead of JWT"
+        )
 
-            await bridge._forward_input(
-                event, session.id, "deny: use cookies instead of JWT"
-            )
-
-            # Should have called permission API, not input API
-            mock_http_inst.post.assert_called_once()
-            call_args = mock_http_inst.post.call_args
-            assert "/permission" in call_args[0][0]
-            body = call_args[1]["json"]
-            assert body["allow"] is False
-            assert "use cookies instead of JWT" in body["message"]
+        # Should have called respond_to_permission, not send_input
+        callbacks.respond_to_permission.assert_called_once()
+        args = callbacks.respond_to_permission.call_args[0]
+        assert args[0] == session.id
+        assert args[1] == "req_456"
+        assert args[2] is False
+        assert "use cookies instead of JWT" in args[3]
+        callbacks.send_input.assert_not_called()
 
         # Should have sent confirmation
         assert mock_client.chat_postMessage.called
@@ -246,10 +259,12 @@ class TestSlackBridgePoC:
         session = fresh_store.create_session("repo_test", "main")
 
         mock_client = AsyncMock()
+        callbacks = _mock_callbacks()
 
         bridge = SlackBridge(
             bot_token="xoxb-test-token",
             channel_id="C01234567",
+            callbacks=callbacks,
         )
         bridge._client = mock_client
         bridge._thread_ts[session.id] = "1234567890.123456"
@@ -264,19 +279,11 @@ class TestSlackBridgePoC:
 
         event = {"text": "allow", "thread_ts": "1234567890.123456", "user": "U123"}
 
-        with patch("httpx.AsyncClient") as mock_http:
-            mock_http_inst = AsyncMock()
-            mock_http_inst.__aenter__ = AsyncMock(return_value=mock_http_inst)
-            mock_http_inst.__aexit__ = AsyncMock(return_value=False)
-            mock_http_inst.post.return_value = MagicMock(
-                status_code=200, raise_for_status=MagicMock()
-            )
-            mock_http.return_value = mock_http_inst
+        await bridge._forward_input(event, session.id, "allow")
 
-            await bridge._forward_input(event, session.id, "allow")
-
-            body = mock_http_inst.post.call_args[1]["json"]
-            assert body["allow"] is True
+        callbacks.respond_to_permission.assert_called_once()
+        args = callbacks.respond_to_permission.call_args[0]
+        assert args[2] is True  # allow=True
 
     @pytest.mark.anyio
     async def test_forward_input_non_approval_passes_through(
@@ -291,10 +298,12 @@ class TestSlackBridgePoC:
         fresh_store.update_session(session)
 
         mock_client = AsyncMock()
+        callbacks = _mock_callbacks()
 
         bridge = SlackBridge(
             bot_token="xoxb-test-token",
             channel_id="C01234567",
+            callbacks=callbacks,
         )
         bridge._client = mock_client
         bridge._thread_ts[session.id] = "1234567890.123456"
@@ -313,20 +322,11 @@ class TestSlackBridgePoC:
             "user": "U123",
         }
 
-        with patch("httpx.AsyncClient") as mock_http:
-            mock_http_inst = AsyncMock()
-            mock_http_inst.__aenter__ = AsyncMock(return_value=mock_http_inst)
-            mock_http_inst.__aexit__ = AsyncMock(return_value=False)
-            mock_http_inst.post.return_value = MagicMock(
-                status_code=200, raise_for_status=MagicMock()
-            )
-            mock_http.return_value = mock_http_inst
+        await bridge._forward_input(event, session.id, "fix the bug please")
 
-            await bridge._forward_input(event, session.id, "fix the bug please")
-
-            # Should have called input API, not permission API
-            call_url = mock_http_inst.post.call_args[0][0]
-            assert "/input" in call_url or "/start" in call_url
+        # Should have called send_input, not respond_to_permission
+        callbacks.send_input.assert_called_once_with(session.id, "fix the bug please")
+        callbacks.respond_to_permission.assert_not_called()
 
     @pytest.mark.anyio
     async def test_on_approval_request_auto_approves(

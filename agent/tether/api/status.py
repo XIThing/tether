@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from tether.bridges.manager import bridge_manager
+from tether.bridges.glue import bridge_manager
 from tether.models import SessionState
 from tether.store import store
 

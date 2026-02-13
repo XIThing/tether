@@ -33,7 +33,7 @@ from tether.api.schemas import (
     UpdateApprovalModeRequest,
 )
 from tether.api.state import maybe_set_session_name, now, remove_session_lock, session_lock, transition
-from tether.bridges.manager import bridge_manager
+from tether.bridges.glue import bridge_manager
 from tether.diff import parse_git_diff
 from tether.discovery.running import is_claude_session_running
 from tether.git import has_git_repository, normalize_directory_path
@@ -141,7 +141,7 @@ async def create_session(
 
     # Subscribe bridge if platform is bound
     if session.platform:
-        from tether.bridges.subscriber import bridge_subscriber
+        from tether.bridges.glue import bridge_subscriber
 
         bridge_subscriber.subscribe(session.id, session.platform)
 
@@ -183,7 +183,7 @@ async def delete_session(session_id: str, _: None = Depends(require_token)) -> O
 
         # Cancel bridge subscriber if one is running
         if session.platform:
-            from tether.bridges.subscriber import bridge_subscriber
+            from tether.bridges.glue import bridge_subscriber
 
             await bridge_subscriber.unsubscribe(session_id, platform=session.platform)
 

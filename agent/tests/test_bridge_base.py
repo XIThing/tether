@@ -155,7 +155,23 @@ class TestAutoApproveAction:
 
     @pytest.mark.anyio
     async def test_auto_approve_calls_api(self) -> None:
+        from agent_tether.base import BridgeCallbacks
+
+        mock_respond = AsyncMock(return_value=True)
+        callbacks = BridgeCallbacks(
+            create_session=AsyncMock(),
+            send_input=AsyncMock(),
+            stop_session=AsyncMock(),
+            respond_to_permission=mock_respond,
+            list_sessions=AsyncMock(),
+            get_usage=AsyncMock(),
+            check_directory=AsyncMock(),
+            list_external_sessions=AsyncMock(),
+            get_external_history=AsyncMock(),
+            attach_external=AsyncMock(),
+        )
         bridge = ConcreteBridge()
+        bridge._callbacks = callbacks
         request = ApprovalRequest(
             request_id="req_1",
             title="Read",
@@ -163,22 +179,14 @@ class TestAutoApproveAction:
             options=["Allow", "Deny"],
         )
 
-        mock_response = AsyncMock()
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
+        await bridge._auto_approve("sess_1", request, reason="Allow All")
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            await bridge._auto_approve("sess_1", request, reason="Allow All")
-
-        mock_client.post.assert_called_once()
-        call_kwargs = mock_client.post.call_args
-        assert "/permission" in call_kwargs.args[0]
-        json_body = call_kwargs.kwargs["json"]
-        assert json_body["request_id"] == "req_1"
-        assert json_body["allow"] is True
-        assert "Allow All" in json_body["message"]
+        mock_respond.assert_called_once()
+        args = mock_respond.call_args[0]
+        assert args[0] == "sess_1"
+        assert args[1] == "req_1"
+        assert args[2] is True
+        assert "Allow All" in args[3]
 
 
 class TestUsageFormatting:

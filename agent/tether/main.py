@@ -28,7 +28,15 @@ from tether.log_config import configure_logging
 from tether.maintenance import maintenance_loop
 from tether.settings import settings
 from tether.startup import log_ui_urls
-from tether.bridges.manager import bridge_manager
+from tether.bridges.glue import (
+    bridge_manager,
+    make_bridge_callbacks,
+    make_bridge_config,
+    get_session_directory,
+    get_session_info,
+    on_session_bound,
+    get_sessions_for_restore,
+)
 
 configure_logging()
 logger = structlog.get_logger(__name__)
@@ -57,16 +65,25 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 async def _init_bridges() -> None:
     """Initialize and register messaging platform bridges based on env vars."""
+    config = make_bridge_config()
+    callbacks = make_bridge_callbacks()
+    sessions = get_sessions_for_restore()
+
     # Telegram bridge
     telegram_token = settings.telegram_bot_token()
     telegram_group_id = settings.telegram_group_id()
     if telegram_token and telegram_group_id:
         try:
-            from tether.bridges.telegram.bot import TelegramBridge
+            from agent_tether import TelegramBridge
 
             bridge = TelegramBridge(
                 bot_token=telegram_token,
                 forum_group_id=telegram_group_id,
+                config=config,
+                callbacks=callbacks,
+                get_session_directory=get_session_directory,
+                get_session_info=get_session_info,
+                on_session_bound=on_session_bound,
             )
             await bridge.start()
             bridge_manager.register_bridge("telegram", bridge)
@@ -79,14 +96,20 @@ async def _init_bridges() -> None:
     slack_channel = settings.slack_channel_id()
     if slack_token and slack_channel:
         try:
-            from tether.bridges.slack.bot import SlackBridge
+            from agent_tether import SlackBridge
 
             bridge = SlackBridge(
                 bot_token=slack_token,
                 channel_id=slack_channel,
+                slack_app_token=settings.slack_app_token(),
+                config=config,
+                callbacks=callbacks,
+                get_session_directory=get_session_directory,
+                get_session_info=get_session_info,
+                on_session_bound=on_session_bound,
             )
             await bridge.start()
-            bridge.restore_thread_mappings()
+            bridge.restore_thread_mappings(sessions)
             bridge_manager.register_bridge("slack", bridge)
             logger.info("Slack bridge registered and started")
         except Exception:
@@ -97,14 +120,25 @@ async def _init_bridges() -> None:
     discord_channel = settings.discord_channel_id()
     if discord_token:
         try:
-            from tether.bridges.discord.bot import DiscordBridge
+            from agent_tether import DiscordBridge
+            from agent_tether.discord.bot import DiscordConfig
 
             bridge = DiscordBridge(
                 bot_token=discord_token,
                 channel_id=discord_channel,
+                discord_config=DiscordConfig(
+                    require_pairing=settings.discord_require_pairing(),
+                    allowed_user_ids=settings.discord_allowed_user_ids(),
+                    pairing_code=settings.discord_pairing_code(),
+                ),
+                config=config,
+                callbacks=callbacks,
+                get_session_directory=get_session_directory,
+                get_session_info=get_session_info,
+                on_session_bound=on_session_bound,
             )
             await bridge.start()
-            bridge.restore_thread_mappings()
+            bridge.restore_thread_mappings(sessions)
             bridge_manager.register_bridge("discord", bridge)
             logger.info("Discord bridge registered and started")
         except Exception:
@@ -117,7 +151,7 @@ def _subscribe_existing_sessions() -> None:
     Called on startup to handle server restarts — any sessions that were
     previously bound to a platform get their bridge subscriber reattached.
     """
-    from tether.bridges.subscriber import bridge_subscriber
+    from tether.bridges.glue import bridge_subscriber
     from tether.store import store
 
     for session in store.list_sessions():

@@ -322,11 +322,12 @@ class TestBridgeSubscriberResilience:
         session.platform = "failing"
         fresh_store.update_session(session)
 
-        subscriber = BridgeSubscriber()
-        # Patch store import inside subscriber
-        import tether.bridges.subscriber
-        original_manager = tether.bridges.subscriber.bridge_manager
-        tether.bridges.subscriber.bridge_manager = manager
+        from agent_tether.subscriber import BridgeSubscriber as _BS
+        subscriber = _BS(
+            bridge_manager=manager,
+            new_subscriber=fresh_store.new_subscriber,
+            remove_subscriber=fresh_store.remove_subscriber,
+        )
 
         try:
             subscriber.subscribe(session.id, "failing")
@@ -359,7 +360,6 @@ class TestBridgeSubscriberResilience:
             assert bridge.status_calls[0]["status"] == "error"
         finally:
             await subscriber.unsubscribe(session.id)
-            tether.bridges.subscriber.bridge_manager = original_manager
 
     @pytest.mark.anyio
     async def test_subscriber_routes_permission_to_bridge(self, fresh_store: SessionStore) -> None:
@@ -372,10 +372,12 @@ class TestBridgeSubscriberResilience:
         session.platform = "mock"
         fresh_store.update_session(session)
 
-        subscriber = BridgeSubscriber()
-        import tether.bridges.subscriber
-        original_manager = tether.bridges.subscriber.bridge_manager
-        tether.bridges.subscriber.bridge_manager = manager
+        from agent_tether.subscriber import BridgeSubscriber as _BS
+        subscriber = _BS(
+            bridge_manager=manager,
+            new_subscriber=fresh_store.new_subscriber,
+            remove_subscriber=fresh_store.remove_subscriber,
+        )
 
         try:
             subscriber.subscribe(session.id, "mock")
@@ -403,7 +405,6 @@ class TestBridgeSubscriberResilience:
             assert "Deny" in req.options
         finally:
             await subscriber.unsubscribe(session.id)
-            tether.bridges.subscriber.bridge_manager = original_manager
 
     @pytest.mark.anyio
     async def test_subscriber_skips_history_events(self, fresh_store: SessionStore) -> None:
@@ -416,10 +417,12 @@ class TestBridgeSubscriberResilience:
         session.platform = "mock"
         fresh_store.update_session(session)
 
-        subscriber = BridgeSubscriber()
-        import tether.bridges.subscriber
-        original_manager = tether.bridges.subscriber.bridge_manager
-        tether.bridges.subscriber.bridge_manager = manager
+        from agent_tether.subscriber import BridgeSubscriber as _BS
+        subscriber = _BS(
+            bridge_manager=manager,
+            new_subscriber=fresh_store.new_subscriber,
+            remove_subscriber=fresh_store.remove_subscriber,
+        )
 
         try:
             subscriber.subscribe(session.id, "mock")
@@ -450,7 +453,6 @@ class TestBridgeSubscriberResilience:
             assert "old history" not in texts
         finally:
             await subscriber.unsubscribe(session.id)
-            tether.bridges.subscriber.bridge_manager = original_manager
 
 
 class TestStateTransitionsExternalAgent:
