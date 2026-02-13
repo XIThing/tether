@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import httpx
 import structlog
 
 from agent_tether import BridgeCallbacks, BridgeConfig, BridgeManager
@@ -88,7 +89,6 @@ def get_sessions_for_restore() -> list[dict]:
 
 async def _create_session(**kwargs) -> dict:
     """Create a new Tether session."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -103,7 +103,6 @@ async def _create_session(**kwargs) -> dict:
 
 async def _send_input(session_id: str, text: str) -> None:
     """Send input to a session; start it if in CREATED state."""
-    import httpx
 
     try:
         async with httpx.AsyncClient() as client:
@@ -138,7 +137,6 @@ async def _send_input(session_id: str, text: str) -> None:
 
 async def _stop_session(session_id: str) -> None:
     """Interrupt/stop a session."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -153,7 +151,6 @@ async def _respond_to_permission(
     session_id: str, request_id: str, allow: bool, message: str | None = None
 ) -> bool:
     """Respond to a permission request."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -172,7 +169,6 @@ async def _respond_to_permission(
 
 async def _list_sessions() -> list[dict]:
     """List all active sessions."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
@@ -186,7 +182,6 @@ async def _list_sessions() -> list[dict]:
 
 async def _get_usage(session_id: str) -> dict:
     """Get token/cost usage for a session."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
@@ -200,7 +195,6 @@ async def _get_usage(session_id: str) -> dict:
 
 async def _check_directory(path: str) -> dict:
     """Check if a directory path exists."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         r = await client.get(
@@ -215,7 +209,6 @@ async def _check_directory(path: str) -> dict:
 
 async def _list_external_sessions(**kwargs) -> list[dict]:
     """List discoverable external sessions."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
@@ -232,7 +225,6 @@ async def _get_external_history(
     external_id: str, runner_type: str, limit: int
 ) -> dict | None:
     """Get history for an external session."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
@@ -247,7 +239,6 @@ async def _get_external_history(
 
 async def _attach_external(**kwargs) -> dict:
     """Attach to an external session."""
-    import httpx
 
     async with httpx.AsyncClient() as client:
         response = await client.post(

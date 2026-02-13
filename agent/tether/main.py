@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import socket
+import sys
 from contextlib import asynccontextmanager, suppress
 
 import structlog
@@ -176,8 +178,6 @@ app.include_router(root_router)
 
 def run() -> None:
     """Entry point for ``tether start``."""
-    import sys
-
     port = settings.port()
     app.state.agent_token = settings.token()
     try:
@@ -189,8 +189,6 @@ def run() -> None:
         )
     except SystemExit:
         # uvicorn calls sys.exit(1) on bind failure; check if port is in use.
-        import socket
-
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             if s.connect_ex(("127.0.0.1", port)) == 0:
                 logger.error(

@@ -11,6 +11,7 @@ import asyncio
 import glob
 import json
 import os
+import re
 import shutil
 import time
 import uuid
@@ -641,8 +642,6 @@ class PiRpcRunner:
             if session_file:
                 self._session_files[session_id] = session_file
                 # Extract session UUID from the file path
-                import re
-
                 uuid_match = re.search(
                     r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
                     session_file,
