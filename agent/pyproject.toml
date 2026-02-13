@@ -7,7 +7,7 @@ name = "tether-ai"
 version = "0.2.1"
 description = "Control your AI coding agents from your phone when you're away from your desk"
 readme = "README.md"
-license = "Apache-2.0"
+license = "MIT"
 requires-python = ">=3.11"
 authors = [
   { name = "Lars de Ridder", email = "lars@xithing.io" },
@@ -25,13 +25,13 @@ keywords = [
   "coding-assistant",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Web Environment",
   "Framework :: FastAPI",
   "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development",
@@ -111,4 +111,4 @@ exclude_lines = [
 
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ["py311"]

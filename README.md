@@ -1,8 +1,9 @@
 # <img src="tether_compact_logo.png" height="32"> Tether
 
 [![CI](https://github.com/larsderidder/tether/actions/workflows/ci.yml/badge.svg)](https://github.com/larsderidder/tether/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Early_Development-orange.svg)]()
+[![PyPI](https://img.shields.io/pypi/v/tether-ai)](https://pypi.org/project/tether-ai/)
+[![Python](https://img.shields.io/pypi/pyversions/tether-ai)](https://pypi.org/project/tether-ai/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 The open source infra layer between your local coding agents and messaging apps.
 
