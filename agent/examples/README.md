@@ -8,8 +8,8 @@ This directory contains examples demonstrating how to build external agents that
 # Install required dependencies
 pip install httpx
 
-# Start Tether agent server
-tether-agent
+# Start Tether server
+tether start
 ```
 
 ## Examples

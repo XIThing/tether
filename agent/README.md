@@ -46,8 +46,8 @@ pip install tether-ai[dev]
 ### Run the Agent Server
 
 ```bash
-# Start the agent server
-tether-agent
+# Start the server
+tether start
 ```
 
 Then open http://localhost:8787 in your browser.

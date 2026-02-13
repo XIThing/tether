@@ -71,19 +71,5 @@ def _run_init() -> None:
     run_wizard()
 
 
-def _start_compat() -> None:
-    """Legacy ``tether-agent`` entry point.
-
-    Loads config and starts the server without argument parsing.
-    """
-    from tether.config import load_config
-
-    load_config()
-
-    from tether.main import run
-
-    run()
-
-
 if __name__ == "__main__":
     main()

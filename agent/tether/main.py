@@ -168,7 +168,7 @@ app.include_router(api_router)
 app.include_router(root_router)
 
 def run() -> None:
-    """Entry point for the tether-agent console script."""
+    """Entry point for ``tether start``."""
     app.state.agent_token = settings.token()
     uvicorn.run(
         "tether.main:app",
