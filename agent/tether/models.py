@@ -18,36 +18,13 @@ class SessionState(str, Enum):
     ERROR = "ERROR"
 
 
-class ExternalRunnerType(str, Enum):
-    """Types of external session sources."""
-    CLAUDE_CODE = "claude_code"
-    CODEX = "codex"
-    PI = "pi"
-
-
-class ExternalSessionMessage(BaseModel):
-    """Normalized message from external session history."""
-    role: str  # "user" or "assistant"
-    content: str
-    thinking: str | None = None
-    timestamp: str | None = None
-
-
-class ExternalSessionSummary(BaseModel):
-    """Summary info for an external session (for list view)."""
-    id: str
-    runner_type: ExternalRunnerType
-    directory: str
-    first_prompt: str | None = None
-    last_prompt: str | None = None
-    last_activity: str
-    message_count: int
-    is_running: bool
-
-
-class ExternalSessionDetail(ExternalSessionSummary):
-    """Full external session with message history."""
-    messages: list[ExternalSessionMessage] = []
+# External session models re-exported from agent_sessions
+from agent_sessions import (  # noqa: F401, E402
+    RunnerType as ExternalRunnerType,
+    SessionMessage as ExternalSessionMessage,
+    SessionSummary as ExternalSessionSummary,
+    SessionDetail as ExternalSessionDetail,
+)
 
 
 class RepoRef(BaseModel):

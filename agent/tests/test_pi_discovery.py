@@ -128,7 +128,7 @@ def test_list_pi_sessions(monkeypatch, tmp_path: Path) -> None:
     sessions_dir = tmp_path / ".pi" / "agent" / "sessions"
     monkeypatch.setenv("PI_SESSIONS_DIR", str(sessions_dir))
     monkeypatch.setattr(
-        "tether.discovery.pi_sessions.find_running_pi_sessions", lambda: set()
+        "agent_sessions.providers.pi.find_running_pi_sessions", lambda: set()
     )
 
     session_id = "d6660987-06ac-427d-b751-1232e8b88ca2"
@@ -151,7 +151,7 @@ def test_list_pi_sessions_filtered_by_directory(monkeypatch, tmp_path: Path) -> 
     sessions_dir = tmp_path / ".pi" / "agent" / "sessions"
     monkeypatch.setenv("PI_SESSIONS_DIR", str(sessions_dir))
     monkeypatch.setattr(
-        "tether.discovery.pi_sessions.find_running_pi_sessions", lambda: set()
+        "agent_sessions.providers.pi.find_running_pi_sessions", lambda: set()
     )
 
     session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -172,7 +172,7 @@ def test_get_pi_session_detail(monkeypatch, tmp_path: Path) -> None:
     sessions_dir = tmp_path / ".pi" / "agent" / "sessions"
     monkeypatch.setenv("PI_SESSIONS_DIR", str(sessions_dir))
     monkeypatch.setattr(
-        "tether.discovery.pi_sessions.find_running_pi_sessions", lambda: set()
+        "agent_sessions.providers.pi.find_running_pi_sessions", lambda: set()
     )
 
     session_id = "d6660987-06ac-427d-b751-1232e8b88ca2"
