@@ -34,8 +34,14 @@ docker.env
 .run/
 .pi/
 
+# Bridge state files (created by tests without tmp_path)
+discord_threads.json
+discord_pairing.json
+slack_threads.json
+
 # Reference data
 codex-src
 background
 # Ignore historical docs that may reappear locally
 EXTERNAL_AGENT_IMPLEMENTATION.md
+AGENT_TETHER_EXTRACTION.md
