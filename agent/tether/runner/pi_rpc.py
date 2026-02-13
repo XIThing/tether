@@ -428,6 +428,10 @@ class PiRpcRunner:
                                     kind="final",
                                     is_final=True,
                                 )
+            # Agent finished its turn; signal waiting for input.
+            # The pi process stays alive between turns, so the finally
+            # block in _read_events won't fire until the process exits.
+            await self._events.on_awaiting_input(session_id)
 
         # -- Streaming text --
         elif etype == "message_update":
